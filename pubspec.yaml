@@ -1,0 +1,78 @@
+name: healthy_habits
+description: "A Flutter app for a personal trainer to get a comprehensive view 
+              of daily activities and monitor clients' progress using BLE devices. 
+              It's suppose to become a digital primary exercise tracking app.
+              If time allowed, it would get a cobled client app, where the clients
+              could track their own data using smartwatches, phones, fitbit etc.
+              The trainer app would then aggregate all data from the clients.
+
+              And ideally, it would also include some AI features to help the trainer
+              create personalized training plans based on the collected data, as well
+              as provide insights and recommendations for optimizing performance
+              and recovery. Moreover, it provide fulfilling data representation,
+              which should provide easily comprehensive and useful over view of the
+              respective clients. 
+
+              Ideally, the app would be great to have a nutrition tracking,
+              hence becoming a holistic health and fitness platform for both trainers
+              and clients.
+              
+              The app is named HealthyHabits, because it represents the journey towards
+              better health and fitness, one step at a time.
+              
+              In order to keep the app simple and focused, the initial version will
+              primarily focus on exercise tracking and data aggregation from a BLE
+              MoveSense device, with the possibility of adding more features in the future.
+              
+              In order to ease the communication between trainer and clients, the app
+              will also include a messaging feature, allowing trainers to send
+              updates, reminders, and motivational messages to their clients.
+
+              This will help foster a sense of community and support, which is essential
+              for achieving fitness goals should be facilitated through WhatsApp,
+              as the communication platform is either Signal or Microsoft Teams (see platforms.png).
+
+              Overall, Stride aims to be a comprehensive and user-friendly app that
+              empowers personal trainers to deliver better training experiences
+              and helps clients achieve their fitness goals more effectively."
+
+publish_to: "none" # This is a private app
+
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.2.0 <4.0.0"
+
+dependencies:
+  flutter_launcher_icons: ^0.13.1
+  flutter:
+    sdk: flutter
+
+  # UI / Material
+  cupertino_icons: ^1.0.6
+  table_calendar: ^3.0.9
+  intl: ^0.18.0
+
+  # Bluetooth (Movesense)
+  flutter_reactive_ble: ^5.3.1
+
+  # Permissions (Android BLE)
+  permission_handler: ^11.3.1
+  stop_watch_timer: ^3.2.2
+
+dev_dependencies:
+  flutter_launcher_icons: ^0.13.1
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^3.0.1
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/icon/new_logo.png
+    
+flutter_icons:
+  ios: true
+  image_path: assets/icon/new_logo.png
+  

@@ -1,0 +1,17 @@
+ToDo list: 
+
+Frontend
+- Add HR view in client card
+- Add BT view in client card
+- Improve look of client card view
+
+- Search functionalities for clients
+- WhatsApp integration/remove
+- Get clients by date
+
+Backend
+- Connect to MotionSense
+
+- Create HRR (recovery) function
+
+
