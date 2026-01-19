@@ -9,7 +9,7 @@ import '../widgets/client_card_widget.dart';
 import 'client_card_view.dart';
 import 'client_list_view.dart';
 
-/// Landing page: calendar + quick access to clients.
+// Landing page: calendar + quick access to clients.
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -196,6 +196,26 @@ class _HomePageState extends State<HomePage> {
                 formatButtonVisible: false,
                 titleCentered: true,
               ),
+          
+
+            calendarStyle: CalendarStyle(
+              selectedDecoration: BoxDecoration(
+                color: Colors.green, 
+                shape: BoxShape.circle,
+              ),
+              selectedTextStyle: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+              ),
+              todayDecoration: BoxDecoration(
+                color: Colors.green.withOpacity(0.25),
+                shape: BoxShape.circle,
+              ),
+              todayTextStyle: const TextStyle(
+                color: Colors.green,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
             ),
 
             const SizedBox(height: 16),
