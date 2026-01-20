@@ -1,3 +1,4 @@
+// lib/view/home_view.dart
 import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
 
@@ -5,11 +6,11 @@ import '../model/clients.dart';
 import '../view_model/client_list_view_model.dart';
 import '../view_model/client_card_view_model.dart';
 import '../view_model/home_view_model.dart';
+import '../view_model/movement_view_model.dart';
 import '../widgets/client_card_widget.dart';
 import 'client_card_view.dart';
 import 'client_list_view.dart';
 
-// Landing page: calendar + quick access to clients
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -20,14 +21,15 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   late final ClientListViewModel clientListVM;
   late final CalendarViewModel calendarVM;
+  late final MovesenseViewModel movesenseVM;
 
   @override
   void initState() {
     super.initState();
 
     clientListVM = ClientListViewModel();
+    movesenseVM = MovesenseViewModel();
 
-    // Seed with a few demo clients so the UI has something to render
     clientListVM.addClient(
       const Client(
         clientId: '1',
@@ -84,8 +86,17 @@ class _HomePageState extends State<HomePage> {
       ),
     );
 
-    calendarVM = CalendarViewModel(initialClients: List.of(clientListVM.clients));
+    calendarVM =
+        CalendarViewModel(initialClients: List.of(clientListVM.clients));
   }
+
+  @override
+  void dispose() {
+    movesenseVM.dispose();
+    super.dispose();
+  }
+
+  DateTime get _selectedDate => calendarVM.selectedDay ?? DateTime.now();
 
   @override
   Widget build(BuildContext context) {
@@ -125,6 +136,9 @@ class _HomePageState extends State<HomePage> {
                           MaterialPageRoute(
                             builder: (_) => ClientDetailPage(
                               viewModel: ClientDetailViewModel(client: client),
+                              selectedDate: _selectedDate,
+                              clientListVM: clientListVM,
+                              movesenseVM: movesenseVM,
                             ),
                           ),
                         );
@@ -155,7 +169,11 @@ class _HomePageState extends State<HomePage> {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) => ClientListView(clientListVM: clientListVM),
+                          builder: (_) => ClientListView(
+                            clientListVM: clientListVM,
+                            calendarVM: calendarVM,
+                            movesenseVM: movesenseVM,
+                          ),
                         ),
                       );
                     },
@@ -166,9 +184,7 @@ class _HomePageState extends State<HomePage> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: ElevatedButton.icon(
-                    onPressed: () {
-                      // Intentionally left as a placeholder
-                    },
+                    onPressed: () {},
                     icon: const Icon(Icons.message),
                     label: const Text('WhatsApp'),
                   ),
@@ -176,7 +192,6 @@ class _HomePageState extends State<HomePage> {
               ],
             ),
             const SizedBox(height: 20),
-
             TableCalendar(
               firstDay: DateTime.utc(2020, 1, 1),
               lastDay: DateTime.utc(2030, 12, 31),
@@ -196,28 +211,25 @@ class _HomePageState extends State<HomePage> {
                 formatButtonVisible: false,
                 titleCentered: true,
               ),
-          
-
-            calendarStyle: CalendarStyle(
-              selectedDecoration: BoxDecoration(
-                color: Colors.green, 
-                shape: BoxShape.circle,
-              ),
-              selectedTextStyle: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
-              ),
-              todayDecoration: BoxDecoration(
-                color: Colors.green.withOpacity(0.25),
-                shape: BoxShape.circle,
-              ),
-              todayTextStyle: const TextStyle(
-                color: Colors.green,
-                fontWeight: FontWeight.w600,
+              calendarStyle: CalendarStyle(
+                selectedDecoration: const BoxDecoration(
+                  color: Colors.green,
+                  shape: BoxShape.circle,
+                ),
+                selectedTextStyle: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                ),
+                todayDecoration: BoxDecoration(
+                  color: Colors.green.withOpacity(0.25),
+                  shape: BoxShape.circle,
+                ),
+                todayTextStyle: const TextStyle(
+                  color: Colors.green,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
-            ),
-
             const SizedBox(height: 16),
             Align(
               alignment: Alignment.centerLeft,
@@ -227,11 +239,9 @@ class _HomePageState extends State<HomePage> {
               ),
             ),
             const SizedBox(height: 8),
-
             AnimatedBuilder(
               animation: clientListVM,
               builder: (_, __) {
-                // Keep calendar view model in sync with the list view model
                 calendarVM.replaceClients(clientListVM.clients);
                 final list = calendarVM.getClientsForDay(
                   calendarVM.selectedDay ?? DateTime.now(),
@@ -254,7 +264,11 @@ class _HomePageState extends State<HomePage> {
                               context,
                               MaterialPageRoute(
                                 builder: (_) => ClientDetailPage(
-                                  viewModel: ClientDetailViewModel(client: client),
+                                  viewModel:
+                                      ClientDetailViewModel(client: client),
+                                  selectedDate: _selectedDate,
+                                  clientListVM: clientListVM,
+                                  movesenseVM: movesenseVM,
                                 ),
                               ),
                             );

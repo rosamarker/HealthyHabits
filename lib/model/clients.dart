@@ -147,8 +147,6 @@ class Client {
       'nextAppointment': nextAppointment,
       'motivation': motivation,
       'exercises': exercises.map((e) => e.toMap()).toList(),
-
-      // Movesense association
       'movesenseDeviceId': movesenseDeviceId,
       'movesenseDeviceName': movesenseDeviceName,
     };
@@ -166,8 +164,6 @@ class Client {
       exercises: ((map['exercises'] ?? []) as List<dynamic>)
           .map((e) => Exercise.fromMap(e as Map<String, dynamic>))
           .toList(),
-
-      // Movesense association nullable fields
       movesenseDeviceId: map['movesenseDeviceId'] as String?,
       movesenseDeviceName: map['movesenseDeviceName'] as String?,
     );

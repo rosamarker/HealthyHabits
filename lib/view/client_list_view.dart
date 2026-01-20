@@ -1,16 +1,28 @@
+// lib/view/client_list_view.dart
 import 'package:flutter/material.dart';
 
 import '../model/clients.dart';
 import '../view_model/client_list_view_model.dart';
+import '../view_model/client_card_view_model.dart';
+import '../view_model/home_view_model.dart';
+import '../view_model/movement_view_model.dart';
 import '../widgets/client_card_widget.dart';
 import 'create_client_view.dart';
 import 'client_card_view.dart';
-import '../view_model/client_card_view_model.dart';
 
 class ClientListView extends StatelessWidget {
   final ClientListViewModel clientListVM;
+  final CalendarViewModel calendarVM;
+  final MovesenseViewModel movesenseVM;
 
-  const ClientListView({super.key, required this.clientListVM});
+  const ClientListView({
+    super.key,
+    required this.clientListVM,
+    required this.calendarVM,
+    required this.movesenseVM,
+  });
+
+  DateTime get _selectedDate => calendarVM.selectedDay ?? DateTime.now();
 
   @override
   Widget build(BuildContext context) {
@@ -89,13 +101,14 @@ class ClientListView extends StatelessWidget {
                           MaterialPageRoute(
                             builder: (_) => ClientDetailPage(
                               viewModel: ClientDetailViewModel(client: client),
+                              selectedDate: _selectedDate,
+                              clientListVM: clientListVM,
+                              movesenseVM: movesenseVM,
                             ),
                           ),
                         );
                       },
                     ),
-
-                    // Edit overlay.
                     Positioned(
                       top: 4,
                       right: 4,
