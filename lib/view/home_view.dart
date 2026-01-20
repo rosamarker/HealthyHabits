@@ -9,7 +9,7 @@ import '../widgets/client_card_widget.dart';
 import 'client_card_view.dart';
 import 'client_list_view.dart';
 
-// Landing page: calendar + quick access to clients.
+// Landing page: calendar + quick access to clients
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -27,7 +27,7 @@ class _HomePageState extends State<HomePage> {
 
     clientListVM = ClientListViewModel();
 
-    // Seed with a few demo clients so the UI has something to render.
+    // Seed with a few demo clients so the UI has something to render
     clientListVM.addClient(
       const Client(
         clientId: '1',
@@ -90,7 +90,7 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('HealthyHabits')),
+      appBar: AppBar(title: const Text('Healthy Habits')),
       drawer: Drawer(
         child: SafeArea(
           child: AnimatedBuilder(
@@ -102,7 +102,7 @@ class _HomePageState extends State<HomePage> {
                 children: [
                   const DrawerHeader(
                     decoration: BoxDecoration(
-                      color: Color.fromARGB(255, 97, 164, 97),
+                      color: Colors.lightGreen,
                     ),
                     child: Text(
                       'Clients',
@@ -167,7 +167,7 @@ class _HomePageState extends State<HomePage> {
                 Expanded(
                   child: ElevatedButton.icon(
                     onPressed: () {
-                      // Intentionally left as a placeholder.
+                      // Intentionally left as a placeholder
                     },
                     icon: const Icon(Icons.message),
                     label: const Text('WhatsApp'),
@@ -231,7 +231,7 @@ class _HomePageState extends State<HomePage> {
             AnimatedBuilder(
               animation: clientListVM,
               builder: (_, __) {
-                // Keep calendar view model in sync with the list view model.
+                // Keep calendar view model in sync with the list view model
                 calendarVM.replaceClients(clientListVM.clients);
                 final list = calendarVM.getClientsForDay(
                   calendarVM.selectedDay ?? DateTime.now(),
@@ -240,7 +240,7 @@ class _HomePageState extends State<HomePage> {
                 if (list.isEmpty) {
                   return const Align(
                     alignment: Alignment.centerLeft,
-                    child: Text('No clients for the selected day.'),
+                    child: Text('No clients for the selected day'),
                   );
                 }
 

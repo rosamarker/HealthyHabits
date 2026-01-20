@@ -106,7 +106,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
             Text(client.motivation.isNotEmpty ? client.motivation : 'No motivation notes added.'),
             const SizedBox(height: 16),
 
-            // Movesense association (stored on the client at creation time)
+            // Movesense association
             const Text('Movesense:', style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 4),
             Row(

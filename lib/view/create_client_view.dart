@@ -7,7 +7,7 @@ import 'package:flutter/material.dart';
 // Bluetooth Low Energy package used for Movesense
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 
-// Runtime permission handling (Android + iOS)
+// Runtime permission handling 
 import 'package:permission_handler/permission_handler.dart';
 import '../view_model/movement_view_model.dart' show MovesenseViewModel;
 
@@ -229,12 +229,12 @@ class _CreateClientPageState extends State<CreateClientPage> {
 
               const SizedBox(height: 16),
 
-              // ===== Movesense Bluetooth Section =====
+              // Movesense Bluetooth Section
               MovesenseConnectWidget(vm: movesenseVM),
 
               const SizedBox(height: 16),
 
-              // ===== Exercise Creation =====
+              // Exercise Creation
               ExerciseFormWidget(
                 onCreate: (exercise) {
                   setState(() => viewModel.exercises.add(exercise));
@@ -243,7 +243,7 @@ class _CreateClientPageState extends State<CreateClientPage> {
 
               const SizedBox(height: 12),
 
-              // ===== Submit Button =====
+              // Submit Button
               ElevatedButton(
                 onPressed: () {
                   _updateViewModelFromControllers();
@@ -354,8 +354,7 @@ class _MovesenseConnectWidgetState extends State<MovesenseConnectWidget> {
 }
 
 Future<void> _requestBlePermissionsIfNeeded(BuildContext context) async {
-  // iOS: Bluetooth permission is governed by Info.plist usage strings.
-  // Android: runtime permissions required on modern versions.
+  // iOS: Bluetooth permission is governed by Info.plist usage strings
   try {
     final perms = <Permission>[
       Permission.bluetoothScan,
@@ -373,7 +372,7 @@ Future<void> _requestBlePermissionsIfNeeded(BuildContext context) async {
       );
     }
   } catch (_) {
-    // If a permission is not supported on the current platform, ignore.
+    // If a permission is not supported on the current platform, ignore
   }
 }
 

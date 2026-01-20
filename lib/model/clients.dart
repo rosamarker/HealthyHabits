@@ -94,7 +94,7 @@ class Client {
 
   final List<Exercise> exercises;
 
-  // ✅ NEW: Movesense association (persisted on the Client)
+  // Movesense association (persisted on the Client)
   final String? movesenseDeviceId;
   final String? movesenseDeviceName;
 
@@ -148,7 +148,7 @@ class Client {
       'motivation': motivation,
       'exercises': exercises.map((e) => e.toMap()).toList(),
 
-      // ✅ NEW fields
+      // Movesense association
       'movesenseDeviceId': movesenseDeviceId,
       'movesenseDeviceName': movesenseDeviceName,
     };
@@ -167,7 +167,7 @@ class Client {
           .map((e) => Exercise.fromMap(e as Map<String, dynamic>))
           .toList(),
 
-      // ✅ NEW fields (nullable)
+      // Movesense association nullable fields
       movesenseDeviceId: map['movesenseDeviceId'] as String?,
       movesenseDeviceName: map['movesenseDeviceName'] as String?,
     );

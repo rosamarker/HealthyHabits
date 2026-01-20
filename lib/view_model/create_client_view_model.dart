@@ -12,7 +12,7 @@ class CreateClientViewModel {
   /// Exercises added while creating client
   final List<Exercise> exercises = [];
 
-  /// ✅ Movesense association captured during client creation
+  // Movesense association captured during client creation
   String? movesenseDeviceId;
   String? movesenseDeviceName;
 

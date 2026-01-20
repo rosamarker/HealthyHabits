@@ -17,10 +17,9 @@ class CalendarViewModel {
   // Public Accessors
   List<Client> get clients => _clients;
 
-  /// Replace the internal client list with a new snapshot.
-  ///
-  /// The view model is intentionally kept lightweight (no ChangeNotifier)
-  /// and expects the UI layer to decide when to refresh.
+  // Replace the internal client list with a new snapshot
+  // The view model is intentionally kept lightweight (no ChangeNotifier)
+  // and expects the UI layer to decide when to refresh
   void replaceClients(List<Client> clients) {
     _clients
       ..clear()
