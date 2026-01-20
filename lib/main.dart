@@ -13,14 +13,14 @@ class HealthyHabitsApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'HealthyHabits',
+      title: 'Healthy Habits',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color.fromARGB(255, 97, 164, 97),
+          seedColor: Colors.lightGreen,
         ),
         useMaterial3: true,
         appBarTheme: const AppBarTheme(
-          backgroundColor: Color.fromARGB(255, 97, 164, 97),
+          backgroundColor: Colors.lightGreen,
           foregroundColor: Colors.white,
           centerTitle: true,
           titleTextStyle: TextStyle(

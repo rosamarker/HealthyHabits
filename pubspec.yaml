@@ -74,5 +74,7 @@ flutter:
     
 flutter_icons:
   ios: true
+  android: true
   image_path: assets/icon/new_logo.png
+  remove_alpha_ios: true
   
