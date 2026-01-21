@@ -1,58 +1,111 @@
 // lib/view_model/create_client_view_model.dart
+import 'dart:math';
+import 'package:flutter/material.dart';
+
 import '../model/clients.dart';
 
-class CreateClientViewModel {
-  String name = '';
-  int? age;
-  String gender = 'Male';
-  int active = 0; // 0 = green, 1 = yellow, 2 = red
-  DateTime? nextAppointment;
-  String motivation = '';
+class CreateClientViewModel extends ChangeNotifier {
+  final TextEditingController nameController = TextEditingController();
+  final TextEditingController ageController = TextEditingController();
+  final TextEditingController motivationController = TextEditingController();
 
-  /// Exercises added while creating client
+  String gender = 'Male';
+  int active = 0;
+
+  DateTime? nextAppointment;
+
   final List<Exercise> exercises = [];
 
-  // Movesense association captured during client creation
   String? movesenseDeviceId;
   String? movesenseDeviceName;
 
-  String? validateName() {
-    if (name.isEmpty) return 'Enter a name';
-    return null;
-  }
+  CreateClientViewModel({Client? initialClient}) {
+    if (initialClient != null) {
+      nameController.text = initialClient.name;
+      ageController.text = initialClient.age.toString();
+      motivationController.text = initialClient.motivation;
+      gender = initialClient.gender;
+      active = initialClient.active;
 
-  String? validateAge() {
-    if (age == null || age! <= 0) return 'Enter a valid age';
-    return null;
-  }
+      if (initialClient.nextAppointment > 0) {
+        nextAppointment =
+            DateTime.fromMillisecondsSinceEpoch(initialClient.nextAppointment * 1000);
+      }
 
-  String? validateNextAppointment() {
-    if (nextAppointment == null) return 'Pick a next appointment';
-    return null;
-  }
+      exercises.clear();
+      exercises.addAll(initialClient.exercises);
 
-  bool validateAll() {
-    return validateName() == null &&
-        validateAge() == null &&
-        validateNextAppointment() == null;
-  }
-
-  Client createClient() {
-    if (!validateAll()) {
-      throw Exception('Cannot create client: invalid data');
+      movesenseDeviceId = initialClient.movesenseDeviceId;
+      movesenseDeviceName = initialClient.movesenseDeviceName;
     }
+  }
+
+  void setGender(String value) {
+    gender = value;
+    notifyListeners();
+  }
+
+  void setActive(int value) {
+    active = value;
+    notifyListeners();
+  }
+
+  void setNextAppointment(DateTime? value) {
+    nextAppointment = value;
+    notifyListeners();
+  }
+
+  void setMovesenseLink({String? deviceId, String? deviceName}) {
+    movesenseDeviceId = deviceId;
+    movesenseDeviceName = deviceName;
+    notifyListeners();
+  }
+
+  void addExercise(Exercise exercise) {
+    exercises.add(exercise);
+    notifyListeners();
+  }
+
+  void removeExercise(String exerciseId) {
+    exercises.removeWhere((e) => e.exerciseId == exerciseId);
+    notifyListeners();
+  }
+
+  Client buildClient({String? existingClientId}) {
+    final id = existingClientId ?? _randomId();
+
+    final age = int.tryParse(ageController.text.trim()) ?? 0;
+
+    final nextApptSeconds = nextAppointment == null
+        ? 0
+        : (nextAppointment!.millisecondsSinceEpoch / 1000).round();
 
     return Client(
-      clientId: DateTime.now().millisecondsSinceEpoch.toString(),
-      name: name,
-      age: age!,
+      clientId: id,
+      name: nameController.text.trim().isEmpty ? 'Unnamed' : nameController.text.trim(),
+      age: age,
       gender: gender,
       active: active,
-      nextAppointment: nextAppointment!.millisecondsSinceEpoch ~/ 1000,
-      motivation: motivation,
-      exercises: List.unmodifiable(exercises),
+      nextAppointment: nextApptSeconds,
+      motivation: motivationController.text.trim(),
+      exercises: List.of(exercises),
       movesenseDeviceId: movesenseDeviceId,
       movesenseDeviceName: movesenseDeviceName,
     );
+  }
+
+  String _randomId() {
+    final rng = Random();
+    final ts = DateTime.now().millisecondsSinceEpoch.toString();
+    final r = rng.nextInt(999999).toString().padLeft(6, '0');
+    return '$ts$r';
+  }
+
+  @override
+  void dispose() {
+    nameController.dispose();
+    ageController.dispose();
+    motivationController.dispose();
+    super.dispose();
   }
 }

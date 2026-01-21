@@ -1,50 +1,34 @@
+// lib/view_model/home_view_model.dart
+import 'package:flutter/foundation.dart';
 import '../model/clients.dart';
 
-/* ViewModel for Calendar at the landing page */
+class CalendarViewModel extends ChangeNotifier {
+  List<Client> _clients;
 
-class CalendarViewModel {
-  // Client List
-  final List<Client> _clients;
-
-  // Calendar State
-  DateTime focusedDay = DateTime.now();
+  DateTime focusedDay;
   DateTime? selectedDay;
 
-  // Constructor
-  CalendarViewModel({List<Client>? initialClients})
-      : _clients = initialClients ?? [];
+  CalendarViewModel({required List<Client> initialClients})
+      : _clients = List<Client>.of(initialClients),
+        focusedDay = DateTime.now(),
+        selectedDay = DateTime.now();
 
-  // Public Accessors
-  List<Client> get clients => _clients;
-
-  // Replace the internal client list with a new snapshot
-  // The view model is intentionally kept lightweight (no ChangeNotifier)
-  // and expects the UI layer to decide when to refresh
-  void replaceClients(List<Client> clients) {
-    _clients
-      ..clear()
-      ..addAll(clients);
-  }
-
-
-
-  /* Actions in done when using the calendar function at the landingpage */
-
-  // Add a new client to the list
-  void addClient(Client client) {
-    _clients.add(client);
-  }
-
-  // Update selected and focused day
   void selectDay(DateTime day) {
     selectedDay = day;
-    focusedDay = day;
+    notifyListeners();
   }
 
-  // Get clients for a specific day (placeholder logic)
+  void replaceClients(List<Client> clients) {
+    _clients = List<Client>.of(clients);
+  }
+
   List<Client> getClientsForDay(DateTime day) {
-    // TODO: Replace with real filtering logic by date
-    if (selectedDay != null) return _clients;
-    return [];
+    final target = DateTime(day.year, day.month, day.day);
+
+    return _clients.where((c) {
+      final d = DateTime.fromMillisecondsSinceEpoch(c.nextAppointment * 1000);
+      final cd = DateTime(d.year, d.month, d.day);
+      return cd == target;
+    }).toList();
   }
 }

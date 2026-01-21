@@ -6,8 +6,9 @@ import '../model/clients.dart';
 import '../view_model/client_list_view_model.dart';
 import '../view_model/client_card_view_model.dart';
 import '../view_model/home_view_model.dart';
-import '../view_model/movement_view_model.dart';
+import '../view_model/movesense_view_model.dart';
 import '../widgets/client_card_widget.dart';
+import '../widgets/movesense_block_widget.dart';
 import 'client_card_view.dart';
 import 'client_list_view.dart';
 
@@ -21,6 +22,8 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   late final ClientListViewModel clientListVM;
   late final CalendarViewModel calendarVM;
+
+  // Shared Movesense VM for the Home page block
   late final MovesenseViewModel movesenseVM;
 
   @override
@@ -28,8 +31,8 @@ class _HomePageState extends State<HomePage> {
     super.initState();
 
     clientListVM = ClientListViewModel();
-    movesenseVM = MovesenseViewModel();
 
+    // Demo clients
     clientListVM.addClient(
       const Client(
         clientId: '1',
@@ -61,6 +64,7 @@ class _HomePageState extends State<HomePage> {
         ],
       ),
     );
+
     clientListVM.addClient(
       const Client(
         clientId: '2',
@@ -73,6 +77,7 @@ class _HomePageState extends State<HomePage> {
         exercises: [],
       ),
     );
+
     clientListVM.addClient(
       const Client(
         clientId: '3',
@@ -86,8 +91,9 @@ class _HomePageState extends State<HomePage> {
       ),
     );
 
-    calendarVM =
-        CalendarViewModel(initialClients: List.of(clientListVM.clients));
+    calendarVM = CalendarViewModel(initialClients: List.of(clientListVM.clients));
+
+    movesenseVM = MovesenseViewModel();
   }
 
   @override
@@ -96,12 +102,15 @@ class _HomePageState extends State<HomePage> {
     super.dispose();
   }
 
-  DateTime get _selectedDate => calendarVM.selectedDay ?? DateTime.now();
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Healthy Habits')),
+      // FIX: force AppBar color
+      appBar: AppBar(
+        title: const Text('Healthy Habits'),
+        backgroundColor: Colors.lightGreen,
+        foregroundColor: Colors.white,
+      ),
       drawer: Drawer(
         child: SafeArea(
           child: AnimatedBuilder(
@@ -112,9 +121,7 @@ class _HomePageState extends State<HomePage> {
                 padding: EdgeInsets.zero,
                 children: [
                   const DrawerHeader(
-                    decoration: BoxDecoration(
-                      color: Colors.lightGreen,
-                    ),
+                    decoration: BoxDecoration(color: Colors.lightGreen),
                     child: Text(
                       'Clients',
                       style: TextStyle(color: Colors.white, fontSize: 24),
@@ -136,9 +143,6 @@ class _HomePageState extends State<HomePage> {
                           MaterialPageRoute(
                             builder: (_) => ClientDetailPage(
                               viewModel: ClientDetailViewModel(client: client),
-                              selectedDate: _selectedDate,
-                              clientListVM: clientListVM,
-                              movesenseVM: movesenseVM,
                             ),
                           ),
                         );
@@ -161,6 +165,12 @@ class _HomePageState extends State<HomePage> {
               style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
+
+            // NEW: Movesense block on Home page
+            MovesenseBlockWidget(movesenseVM: movesenseVM),
+
+            const SizedBox(height: 16),
+
             Row(
               children: [
                 Expanded(
@@ -169,11 +179,7 @@ class _HomePageState extends State<HomePage> {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) => ClientListView(
-                            clientListVM: clientListVM,
-                            calendarVM: calendarVM,
-                            movesenseVM: movesenseVM,
-                          ),
+                          builder: (_) => ClientListView(clientListVM: clientListVM),
                         ),
                       );
                     },
@@ -192,6 +198,7 @@ class _HomePageState extends State<HomePage> {
               ],
             ),
             const SizedBox(height: 20),
+
             TableCalendar(
               firstDay: DateTime.utc(2020, 1, 1),
               lastDay: DateTime.utc(2030, 12, 31),
@@ -230,6 +237,7 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
             ),
+
             const SizedBox(height: 16),
             Align(
               alignment: Alignment.centerLeft,
@@ -239,10 +247,12 @@ class _HomePageState extends State<HomePage> {
               ),
             ),
             const SizedBox(height: 8),
+
             AnimatedBuilder(
               animation: clientListVM,
               builder: (_, __) {
                 calendarVM.replaceClients(clientListVM.clients);
+
                 final list = calendarVM.getClientsForDay(
                   calendarVM.selectedDay ?? DateTime.now(),
                 );
@@ -264,11 +274,7 @@ class _HomePageState extends State<HomePage> {
                               context,
                               MaterialPageRoute(
                                 builder: (_) => ClientDetailPage(
-                                  viewModel:
-                                      ClientDetailViewModel(client: client),
-                                  selectedDate: _selectedDate,
-                                  clientListVM: clientListVM,
-                                  movesenseVM: movesenseVM,
+                                  viewModel: ClientDetailViewModel(client: client),
                                 ),
                               ),
                             );

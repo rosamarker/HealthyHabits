@@ -23,7 +23,6 @@ class ClientListViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Update Movesense association after creation if needed
   void setMovesenseForClient({
     required String clientId,
     required String? deviceId,
