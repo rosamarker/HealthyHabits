@@ -4,9 +4,11 @@ import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 
 import '../model/clients.dart';
 import '../view_model/movesense_view_model.dart';
+import '../view_model/recording_view_model.dart';
 
 class MovesenseBlockWidget extends StatefulWidget {
   final MovesenseViewModel vm;
+  final RecordingViewModel recordingVM;
 
   final List<Client> clients;
   final ValueChanged<Client>? onLinkToClient;
@@ -14,6 +16,7 @@ class MovesenseBlockWidget extends StatefulWidget {
   const MovesenseBlockWidget({
     super.key,
     required this.vm,
+    required this.recordingVM,
     this.clients = const [],
     this.onLinkToClient,
   });
@@ -28,17 +31,16 @@ class _MovesenseBlockWidgetState extends State<MovesenseBlockWidget> {
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: widget.vm,
+      animation: Listenable.merge([widget.vm, widget.recordingVM]),
       builder: (_, __) {
         final vm = widget.vm;
+        final rec = widget.recordingVM;
 
         final idOrName = (vm.deviceName?.isNotEmpty == true)
             ? vm.deviceName!
-            : (vm.deviceId?.isNotEmpty == true ? vm.deviceId! : 'Sensor ID');
+            : (vm.deviceId?.isNotEmpty == true ? vm.deviceId! : 'Sensor');
 
-        final batteryText =
-            vm.batteryPercent != null ? '${vm.batteryPercent}%' : 'battery%';
-
+        final batteryText = vm.batteryPercent != null ? '${vm.batteryPercent}%' : '--%';
         final hrText = vm.heartRate != null ? '${vm.heartRate}' : '--';
 
         final statusLine = vm.isConnecting
@@ -46,6 +48,10 @@ class _MovesenseBlockWidgetState extends State<MovesenseBlockWidget> {
             : (vm.isConnected ? 'Connected' : 'Not connected');
 
         final canTapConnect = !vm.isConnecting;
+
+        final recordingLine = rec.isRecording
+            ? 'Recording • ${rec.elapsed.inSeconds}s • ${rec.sampleCount} samples'
+            : 'Not recording';
 
         return Card(
           elevation: 2,
@@ -60,16 +66,34 @@ class _MovesenseBlockWidgetState extends State<MovesenseBlockWidget> {
                 ),
                 const SizedBox(height: 8),
 
-                Text('$idOrName - $batteryText', style: const TextStyle(fontSize: 16)),
+                Text(
+                  '$idOrName • Battery $batteryText',
+                  style: const TextStyle(fontSize: 16),
+                ),
                 const SizedBox(height: 4),
                 Text(
                   statusLine,
-                  style: TextStyle(color: vm.isConnecting ? Colors.orange : null),
+                  style: TextStyle(
+                    color: vm.isConnecting ? Colors.orange : null,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
+                const SizedBox(height: 6),
+                Text(
+                  recordingLine,
+                  style: TextStyle(
+                    color: rec.isRecording ? Colors.redAccent : null,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+
                 const SizedBox(height: 12),
 
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                // FIX: Replace Row with Wrap to prevent right overflow on small screens.
+                Wrap(
+                  alignment: WrapAlignment.spaceEvenly,
+                  spacing: 12,
+                  runSpacing: 8,
                   children: [
                     TextButton.icon(
                       onPressed: !canTapConnect
@@ -86,6 +110,12 @@ class _MovesenseBlockWidgetState extends State<MovesenseBlockWidget> {
                         vm.isConnecting
                             ? 'Connecting'
                             : (vm.isConnected ? 'Disconnect' : 'Connect'),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        visualDensity: VisualDensity.compact,
                       ),
                     ),
                     TextButton.icon(
@@ -99,7 +129,36 @@ class _MovesenseBlockWidgetState extends State<MovesenseBlockWidget> {
                             }
                           : null,
                       icon: Icon(vm.isStreaming ? Icons.stop : Icons.play_arrow),
-                      label: Text(vm.isStreaming ? 'Stop' : 'Start'),
+                      label: Text(
+                        vm.isStreaming ? 'Stop HR' : 'Start HR',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ),
+                    TextButton.icon(
+                      onPressed: vm.isConnected && vm.isStreaming
+                          ? () async {
+                              if (rec.isRecording) {
+                                await rec.stop();
+                              } else {
+                                await rec.start(clientId: _selectedClientId);
+                              }
+                            }
+                          : null,
+                      icon: Icon(rec.isRecording ? Icons.stop_circle : Icons.fiber_manual_record),
+                      label: Text(
+                        rec.isRecording ? 'Stop rec' : 'Record',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        visualDensity: VisualDensity.compact,
+                      ),
                     ),
                   ],
                 ),
@@ -122,10 +181,12 @@ class _MovesenseBlockWidgetState extends State<MovesenseBlockWidget> {
                     children: [
                       Expanded(
                         child: DropdownButtonFormField<String>(
+                          // NOTE: `value:` is deprecated in newer Flutter versions for DropdownButtonFormField.
+                          // Keep as-is if you want minimal change; switch to `initialValue:` if you update.
                           value: _selectedClientId,
                           isExpanded: true,
                           decoration: const InputDecoration(
-                            labelText: 'Link to client',
+                            labelText: 'Link / Record for client',
                             border: OutlineInputBorder(),
                           ),
                           items: widget.clients
@@ -141,9 +202,7 @@ class _MovesenseBlockWidgetState extends State<MovesenseBlockWidget> {
                       ),
                       const SizedBox(width: 12),
                       ElevatedButton(
-                        onPressed: (!vm.isConnected ||
-                                vm.deviceId == null ||
-                                _selectedClientId == null)
+                        onPressed: (!vm.isConnected || vm.deviceId == null || _selectedClientId == null)
                             ? null
                             : () {
                                 final client = widget.clients.firstWhere(
@@ -159,9 +218,7 @@ class _MovesenseBlockWidgetState extends State<MovesenseBlockWidget> {
 
                                 if (mounted) {
                                   ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text('Linked device to ${client.name}'),
-                                    ),
+                                    SnackBar(content: Text('Linked device to ${client.name}')),
                                   );
                                 }
                               },
@@ -204,7 +261,7 @@ class _MovesenseBlockWidgetState extends State<MovesenseBlockWidget> {
               itemCount: devices.length,
               separatorBuilder: (_, __) => const Divider(height: 1),
               itemBuilder: (_, i) {
-                final DiscoveredDevice d = devices[i];
+                final d = devices[i];
                 return ListTile(
                   leading: const Icon(Icons.watch),
                   title: Text(d.name.isNotEmpty ? d.name : d.id),

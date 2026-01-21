@@ -1,5 +1,7 @@
 // lib/view_model/movesense_view_model.dart
 import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -20,16 +22,23 @@ class MovesenseViewModel extends ChangeNotifier {
 
   MovesenseConnectionState _connState = MovesenseConnectionState.disconnected;
 
+  final StreamController<MovesenseConnectionState> _connStateCtrl =
+      StreamController<MovesenseConnectionState>.broadcast();
+
   String? _deviceId;
   String? _deviceName;
 
   int? _batteryPercent;
   int? _heartRate;
 
+  // --- Public getters ---
   bool get isScanning => _isScanning;
   bool get isStreaming => _isStreaming;
 
   MovesenseConnectionState get connectionState => _connState;
+  Stream<MovesenseConnectionState> get connectionStateStream =>
+      _connStateCtrl.stream;
+
   bool get isConnecting => _connState == MovesenseConnectionState.connecting;
   bool get isConnected => _connState == MovesenseConnectionState.connected;
 
@@ -53,12 +62,10 @@ class MovesenseViewModel extends ChangeNotifier {
       Uuid.parse('00002a19-0000-1000-8000-00805f9b34fb');
 
   // Filter: only show devices whose *name* looks like Movesense.
-  // Adjust these if your device advertises a different name.
   bool _looksLikeMovesense(String name) {
     final n = name.trim().toLowerCase();
     if (n.isEmpty) return false;
 
-    // Common Movesense patterns
     if (n.startsWith('movesense')) return true;
     if (n.startsWith('mds')) return true;
     if (n.contains('movesense')) return true;
@@ -66,12 +73,26 @@ class MovesenseViewModel extends ChangeNotifier {
     return false;
   }
 
+  void _setConnState(MovesenseConnectionState s) {
+    if (_connState == s) return;
+    _connState = s;
+    _connStateCtrl.add(s);
+    notifyListeners();
+  }
+
   Future<bool> _ensurePermissions() async {
-    if (defaultTargetPlatform == TargetPlatform.android) {
-      final status = await Permission.locationWhenInUse.request();
-      return status.isGranted;
-    }
-    return true;
+    if (!Platform.isAndroid) return true;
+
+    // Android 12+ typically requires bluetoothScan/bluetoothConnect.
+    // Some devices still require location for BLE scan visibility.
+    final scan = await Permission.bluetoothScan.request();
+    final connect = await Permission.bluetoothConnect.request();
+
+    // Fallback (older Android / OEM quirks)
+    final location = await Permission.locationWhenInUse.request();
+
+    final ok = (scan.isGranted && connect.isGranted) || location.isGranted;
+    return ok;
   }
 
   Future<void> startScan() async {
@@ -84,29 +105,33 @@ class MovesenseViewModel extends ChangeNotifier {
     _isScanning = true;
     notifyListeners();
 
-    // NOTE: we scan all services but filter by name to avoid Mac/iPhone/etc.
+    // Scan broadly but filter by name to avoid Mac/iPhone/etc.
     _scanSub = _ble
         .scanForDevices(withServices: const [], scanMode: ScanMode.lowLatency)
-        .listen((d) {
-      final name = d.name.trim();
-      if (!_looksLikeMovesense(name)) return;
+        .listen(
+      (d) {
+        final name = d.name.trim();
+        if (!_looksLikeMovesense(name)) return;
 
-      final idx = _found.indexWhere((x) => x.id == d.id);
-      if (idx >= 0) {
-        _found[idx] = d;
-      } else {
-        _found.add(d);
-      }
-      notifyListeners();
-    }, onError: (_) {
-      _isScanning = false;
-      notifyListeners();
-    });
+        final idx = _found.indexWhere((x) => x.id == d.id);
+        if (idx >= 0) {
+          _found[idx] = d;
+        } else {
+          _found.add(d);
+        }
+        notifyListeners();
+      },
+      onError: (_) {
+        _isScanning = false;
+        notifyListeners();
+      },
+    );
   }
 
   Future<void> stopScan() async {
     await _scanSub?.cancel();
     _scanSub = null;
+
     if (_isScanning) {
       _isScanning = false;
       notifyListeners();
@@ -118,44 +143,40 @@ class MovesenseViewModel extends ChangeNotifier {
     await disconnect();
 
     _deviceId = device.id;
-    _deviceName = device.name;
+    _deviceName = device.name.trim().isEmpty ? null : device.name.trim();
 
-    _connState = MovesenseConnectionState.connecting;
-    notifyListeners();
+    _setConnState(MovesenseConnectionState.connecting);
 
     _connSub = _ble
         .connectToDevice(
           id: device.id,
           connectionTimeout: const Duration(seconds: 15),
         )
-        .listen((update) async {
-      if (update.connectionState == DeviceConnectionState.connected) {
-        _connState = MovesenseConnectionState.connected;
-        await _readBatteryOnce();
-        notifyListeners();
-      }
+        .listen(
+      (update) async {
+        if (update.connectionState == DeviceConnectionState.connected) {
+          _setConnState(MovesenseConnectionState.connected);
+          await _readBatteryOnce();
+          notifyListeners();
+        }
 
-      if (update.connectionState == DeviceConnectionState.disconnected) {
-        await _hrSub?.cancel();
-        _hrSub = null;
-
-        _isStreaming = false;
-        _heartRate = null;
-
-        _batteryPercent = null;
-
-        _deviceId = null;
-        _deviceName = null;
-
-        _connState = MovesenseConnectionState.disconnected;
-        notifyListeners();
-      }
-    }, onError: (_) async {
-      await disconnect();
-    });
+        if (update.connectionState == DeviceConnectionState.disconnected) {
+          await _cleanupOnDisconnect();
+        }
+      },
+      onError: (_) async {
+        await _cleanupOnDisconnect();
+      },
+    );
   }
 
   Future<void> disconnect() async {
+    await _cleanupOnDisconnect();
+  }
+
+  Future<void> _cleanupOnDisconnect() async {
+    await stopScan();
+
     await _hrSub?.cancel();
     _hrSub = null;
 
@@ -170,9 +191,7 @@ class MovesenseViewModel extends ChangeNotifier {
     _deviceId = null;
     _deviceName = null;
 
-    _connState = MovesenseConnectionState.disconnected;
-
-    notifyListeners();
+    _setConnState(MovesenseConnectionState.disconnected);
   }
 
   Future<void> _readBatteryOnce() async {
@@ -190,12 +209,12 @@ class MovesenseViewModel extends ChangeNotifier {
         _batteryPercent = value[0].clamp(0, 100);
       }
     } catch (_) {
-      // Not all Movesense firmwares expose standard battery service.
+      // Not all firmwares expose standard battery service.
     }
   }
 
   Future<void> startHeartRate() async {
-    if (_deviceId == null) return;
+    if (_deviceId == null || !isConnected) return;
 
     await stopHeartRate();
 
@@ -208,16 +227,19 @@ class MovesenseViewModel extends ChangeNotifier {
     _isStreaming = true;
     notifyListeners();
 
-    _hrSub = _ble.subscribeToCharacteristic(qc).listen((data) {
-      final hr = _parseHeartRate(data);
-      if (hr != null) {
-        _heartRate = hr;
+    _hrSub = _ble.subscribeToCharacteristic(qc).listen(
+      (data) {
+        final hr = _parseHeartRate(data);
+        if (hr != null) {
+          _heartRate = hr;
+          notifyListeners();
+        }
+      },
+      onError: (_) {
+        _isStreaming = false;
         notifyListeners();
-      }
-    }, onError: (_) {
-      _isStreaming = false;
-      notifyListeners();
-    });
+      },
+    );
   }
 
   Future<void> stopHeartRate() async {
@@ -232,6 +254,7 @@ class MovesenseViewModel extends ChangeNotifier {
 
   int? _parseHeartRate(List<int> data) {
     if (data.length < 2) return null;
+
     final flags = data[0];
     final isUint16 = (flags & 0x01) == 0x01;
 
@@ -248,6 +271,7 @@ class MovesenseViewModel extends ChangeNotifier {
     _scanSub?.cancel();
     _connSub?.cancel();
     _hrSub?.cancel();
+    _connStateCtrl.close();
     super.dispose();
   }
 }

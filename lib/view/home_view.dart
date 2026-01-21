@@ -11,6 +11,11 @@ import '../view/create_client_view.dart';
 import '../view_model/client_card_view_model.dart';
 import '../view_model/client_list_view_model.dart';
 import '../view_model/movesense_view_model.dart';
+import '../view_model/recording_view_model.dart';
+
+import '../services/recording_service.dart';
+import '../services/recording_repository.dart';
+import '../services/file_recording_repository.dart';
 
 import '../widgets/client_card_widget.dart';
 import '../widgets/movesense_block_widget.dart';
@@ -26,6 +31,11 @@ class _HomePageState extends State<HomePage> {
   late final ClientListViewModel clientListVM;
   late final MovesenseViewModel movesenseVM;
 
+  // Recording pipeline
+  late final RecordingRepository recordingRepo;
+  late final RecordingService recordingService;
+  late final RecordingViewModel recordingVM;
+
   CalendarFormat _calendarFormat = CalendarFormat.month;
   DateTime _focusedDay = DateTime.now();
   DateTime _selectedDay = DateTime.now();
@@ -33,12 +43,18 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    clientListVM = ClientListViewModel(); // singleton instance
+
+    clientListVM = ClientListViewModel();
     movesenseVM = MovesenseViewModel();
+
+    recordingRepo = FileRecordingRepository();
+    recordingService = RecordingService(repo: recordingRepo, movesenseVM: movesenseVM);
+    recordingVM = RecordingViewModel(service: recordingService);
   }
 
   @override
   void dispose() {
+    recordingVM.dispose();
     movesenseVM.dispose();
     super.dispose();
   }
@@ -72,8 +88,10 @@ class _HomePageState extends State<HomePage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  // Movesense block (requires recordingVM in your current setup)
                   MovesenseBlockWidget(
                     vm: movesenseVM,
+                    recordingVM: recordingVM,
                     clients: clients,
                     onLinkToClient: (Client updated) {
                       clientListVM.updateClient(updated);
@@ -82,6 +100,7 @@ class _HomePageState extends State<HomePage> {
 
                   const SizedBox(height: 16),
 
+                  // Calendar (old behavior: markers + appointment list)
                   Card(
                     elevation: 2,
                     shape: RoundedRectangleBorder(
@@ -117,8 +136,59 @@ class _HomePageState extends State<HomePage> {
                           titleCentered: true,
                           formatButtonVisible: true,
                         ),
+
+                        // Event loader: client appointments
+                        eventLoader: (day) {
+                          final dayStart = DateTime(day.year, day.month, day.day);
+                          return clients.where((c) {
+                            if (c.nextAppointment <= 0) return false;
+                            final dt = DateTime.fromMillisecondsSinceEpoch(c.nextAppointment * 1000);
+                            return dt.year == dayStart.year &&
+                                dt.month == dayStart.month &&
+                                dt.day == dayStart.day;
+                          }).toList();
+                        },
+
+                        // Markers: colored dots by client status (green/yellow/red)
+                        calendarBuilders: CalendarBuilders(
+                          markerBuilder: (context, day, events) {
+                            if (events.isEmpty) return null;
+                            final clientEvents = events.cast<Client>();
+
+                            final dots = clientEvents.take(3).map((c) {
+                              return Container(
+                                width: 6,
+                                height: 6,
+                                margin: const EdgeInsets.symmetric(horizontal: 1),
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: _statusColor(c.active),
+                                ),
+                              );
+                            }).toList();
+
+                            return Positioned(
+                              bottom: 6,
+                              left: 0,
+                              right: 0,
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: dots,
+                              ),
+                            );
+                          },
+                        ),
                       ),
                     ),
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  // Appointment list for the selected day
+                  _AppointmentsForDay(
+                    selectedDay: _selectedDay,
+                    clients: clients,
+                    onClientTap: (c) => _openClientDetail(context, c),
                   ),
 
                   const SizedBox(height: 16),
@@ -190,30 +260,33 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _openClientList(BuildContext context) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => ClientListView(
-          clientListVM: clientListVM,
-          movesenseVM: movesenseVM,
-        ),
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => ClientListView(
+        clientListVM: clientListVM,
+        movesenseVM: movesenseVM,
+        recordingVM: recordingVM,
       ),
-    );
-  }
+    ),
+  );
+}
 
   Future<void> _openCreateClient(BuildContext context) async {
+    // This relies on CreateClientPage doing: Navigator.pop(context, client);
     final created = await Navigator.push<Client>(
       context,
       MaterialPageRoute(
         builder: (_) => CreateClientPage(
-          onCreate: (Client c) => clientListVM.addClient(c), // still supported
+          onCreate: (_) {}, // rely on returned Client to avoid double-add
         ),
       ),
     );
 
-    // Most reliable: also add from returned value.
     if (created != null) {
-      clientListVM.addClient(created);
+      // Prevent double-add if any other flow also adds
+      final exists = clientListVM.clients.any((c) => c.clientId == created.clientId);
+      if (!exists) clientListVM.addClient(created);
     }
   }
 
@@ -225,6 +298,79 @@ class _HomePageState extends State<HomePage> {
           viewModel: ClientDetailViewModel(client: client),
           clientListVM: clientListVM,
           movesenseVM: movesenseVM,
+          recordingVM: recordingVM,
+        ),
+      ),
+    );
+  }
+
+  Color _statusColor(int active) {
+    switch (active) {
+      case 0:
+        return Colors.green;
+      case 1:
+        return Colors.orange;
+      case 2:
+        return Colors.red;
+      default:
+        return Colors.grey;
+    }
+  }
+}
+
+class _AppointmentsForDay extends StatelessWidget {
+  final DateTime selectedDay;
+  final List<Client> clients;
+  final ValueChanged<Client> onClientTap;
+
+  const _AppointmentsForDay({
+    required this.selectedDay,
+    required this.clients,
+    required this.onClientTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final items = clients
+        .where((c) {
+          if (c.nextAppointment <= 0) return false;
+          final dt = DateTime.fromMillisecondsSinceEpoch(c.nextAppointment * 1000);
+          return dt.year == selectedDay.year &&
+              dt.month == selectedDay.month &&
+              dt.day == selectedDay.day;
+        })
+        .toList()
+      ..sort((a, b) => a.nextAppointment.compareTo(b.nextAppointment));
+
+    if (items.isEmpty) return const SizedBox.shrink();
+
+    return Card(
+      elevation: 0,
+      color: Colors.grey.shade50,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              'Appointments',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            ...items.map((c) {
+              final dt = DateTime.fromMillisecondsSinceEpoch(c.nextAppointment * 1000);
+              final hh = dt.hour.toString().padLeft(2, '0');
+              final mm = dt.minute.toString().padLeft(2, '0');
+              return ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(c.name),
+                subtitle: Text('$hh:$mm'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => onClientTap(c),
+              );
+            }),
+          ],
         ),
       ),
     );

@@ -5,6 +5,7 @@ import '../model/clients.dart';
 import '../view_model/client_list_view_model.dart';
 import '../view_model/client_card_view_model.dart';
 import '../view_model/movesense_view_model.dart';
+import '../view_model/recording_view_model.dart';
 
 import '../widgets/client_card_widget.dart';
 import 'create_client_view.dart';
@@ -13,11 +14,13 @@ import 'client_card_view.dart';
 class ClientListView extends StatelessWidget {
   final ClientListViewModel clientListVM;
   final MovesenseViewModel movesenseVM;
+  final RecordingViewModel recordingVM;
 
   const ClientListView({
     super.key,
     required this.clientListVM,
     required this.movesenseVM,
+    required this.recordingVM,
   });
 
   @override
@@ -93,6 +96,7 @@ class ClientListView extends StatelessWidget {
                               viewModel: ClientDetailViewModel(client: client),
                               clientListVM: clientListVM,
                               movesenseVM: movesenseVM,
+                              recordingVM: recordingVM, 
                             ),
                           ),
                         );

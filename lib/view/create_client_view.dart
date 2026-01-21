@@ -5,6 +5,7 @@ import '../model/clients.dart';
 import '../view_model/create_client_view_model.dart';
 
 class CreateClientPage extends StatefulWidget {
+  // Keep for compatibility, but callers should rely on the returned Client.
   final void Function(Client created) onCreate;
   final Client? initialClient;
 
@@ -56,136 +57,130 @@ class _CreateClientPageState extends State<CreateClientPage> {
     );
   }
 
-  void _save() {
-    FocusScope.of(context).unfocus();
-
-    final client = viewModel.buildClient(
-      existingClientId: widget.initialClient?.clientId,
-    );
-
-    widget.onCreate(client);
-    Navigator.pop(context, client);
-  }
-
   Future<void> _addExerciseDialog() async {
     final nameCtrl = TextEditingController();
     final descCtrl = TextEditingController();
     final setsCtrl = TextEditingController(text: '3');
     final repsCtrl = TextEditingController(text: '10');
-    final timeCtrl = TextEditingController(text: '60');
+    final timeCtrl = TextEditingController(text: '30');
 
     bool isCountable = true;
 
-    final created = await showDialog<Exercise>(
+    String? validatePositiveInt(String v) {
+      final n = int.tryParse(v.trim());
+      if (n == null || n < 0) return 'Enter a valid number';
+      return null;
+    }
+
+    final formKey = GlobalKey<FormState>();
+
+    final added = await showDialog<Exercise>(
       context: context,
       builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setLocalState) {
-            return AlertDialog(
-              title: const Text('Add exercise'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller: nameCtrl,
-                      decoration: const InputDecoration(labelText: 'Name'),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: descCtrl,
-                      decoration: const InputDecoration(labelText: 'Description'),
-                      maxLines: 2,
-                    ),
-                    const SizedBox(height: 14),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: RadioListTile<bool>(
-                            value: true,
-                            groupValue: isCountable,
-                            onChanged: (v) => setLocalState(() => isCountable = v ?? true),
-                            title: const Text('Sets/Reps'),
-                            contentPadding: EdgeInsets.zero,
-                          ),
+        return AlertDialog(
+          title: const Text('Add exercise'),
+          content: StatefulBuilder(
+            builder: (ctx2, setState2) {
+              return Form(
+                key: formKey,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextFormField(
+                        controller: nameCtrl,
+                        decoration: const InputDecoration(labelText: 'Name'),
+                        validator: (v) =>
+                            (v == null || v.trim().isEmpty) ? 'Name required' : null,
+                      ),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        controller: descCtrl,
+                        decoration: const InputDecoration(labelText: 'Description'),
+                        maxLines: 2,
+                      ),
+                      const SizedBox(height: 12),
+                      SwitchListTile(
+                        value: isCountable,
+                        onChanged: (v) => setState2(() => isCountable = v),
+                        title: Text(isCountable ? 'Reps/sets' : 'Time-based'),
+                      ),
+                      const SizedBox(height: 8),
+                      if (isCountable) ...[
+                        TextFormField(
+                          controller: setsCtrl,
+                          decoration: const InputDecoration(labelText: 'Sets'),
+                          keyboardType: TextInputType.number,
+                          validator: (v) => validatePositiveInt(v ?? ''),
                         ),
-                        Expanded(
-                          child: RadioListTile<bool>(
-                            value: false,
-                            groupValue: isCountable,
-                            onChanged: (v) => setLocalState(() => isCountable = v ?? false),
-                            title: const Text('Time'),
-                            contentPadding: EdgeInsets.zero,
-                          ),
+                        const SizedBox(height: 8),
+                        TextFormField(
+                          controller: repsCtrl,
+                          decoration: const InputDecoration(labelText: 'Reps'),
+                          keyboardType: TextInputType.number,
+                          validator: (v) => validatePositiveInt(v ?? ''),
+                        ),
+                      ] else ...[
+                        TextFormField(
+                          controller: timeCtrl,
+                          decoration: const InputDecoration(labelText: 'Time (sec)'),
+                          keyboardType: TextInputType.number,
+                          validator: (v) => validatePositiveInt(v ?? ''),
                         ),
                       ],
-                    ),
-                    const SizedBox(height: 10),
-                    if (isCountable) ...[
-                      TextField(
-                        controller: setsCtrl,
-                        decoration: const InputDecoration(labelText: 'Sets'),
-                        keyboardType: TextInputType.number,
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        controller: repsCtrl,
-                        decoration: const InputDecoration(labelText: 'Reps'),
-                        keyboardType: TextInputType.number,
-                      ),
-                    ] else ...[
-                      TextField(
-                        controller: timeCtrl,
-                        decoration: const InputDecoration(labelText: 'Time (seconds)'),
-                        keyboardType: TextInputType.number,
-                      ),
                     ],
-                  ],
+                  ),
                 ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Cancel'),
-                ),
-                ElevatedButton(
-                  onPressed: () {
-                    final name = nameCtrl.text.trim();
-                    if (name.isEmpty) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Exercise name is required.')),
-                      );
-                      return;
-                    }
+              );
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, null),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                if (!(formKey.currentState?.validate() ?? false)) return;
 
-                    final sets = int.tryParse(setsCtrl.text.trim()) ?? 0;
-                    final reps = int.tryParse(repsCtrl.text.trim()) ?? 0;
-                    final time = int.tryParse(timeCtrl.text.trim()) ?? 0;
+                final exercise = Exercise(
+                  exerciseId: DateTime.now().microsecondsSinceEpoch.toString(),
+                  name: nameCtrl.text.trim(),
+                  description: descCtrl.text.trim(),
+                  sets: isCountable ? (int.tryParse(setsCtrl.text.trim()) ?? 0) : 0,
+                  reps: isCountable ? (int.tryParse(repsCtrl.text.trim()) ?? 0) : 0,
+                  time: isCountable ? 0 : (int.tryParse(timeCtrl.text.trim()) ?? 0),
+                  isCountable: isCountable,
+                );
 
-                    final exercise = Exercise(
-                      exerciseId: DateTime.now().microsecondsSinceEpoch.toString(),
-                      name: name,
-                      description: descCtrl.text.trim(),
-                      sets: isCountable ? sets : 0,
-                      reps: isCountable ? reps : 0,
-                      time: isCountable ? 0 : time,
-                      isCountable: isCountable,
-                    );
-
-                    Navigator.pop(ctx, exercise);
-                  },
-                  child: const Text('Add'),
-                ),
-              ],
-            );
-          },
+                Navigator.pop(ctx, exercise);
+              },
+              child: const Text('Add'),
+            ),
+          ],
         );
       },
     );
 
-    if (created != null) {
-      viewModel.addExercise(created);
+    if (added != null) {
+      viewModel.addExercise(added);
     }
+
+    nameCtrl.dispose();
+    descCtrl.dispose();
+    setsCtrl.dispose();
+    repsCtrl.dispose();
+    timeCtrl.dispose();
+  }
+
+  void _save() {
+    final client = viewModel.buildClient(existingClientId: widget.initialClient?.clientId);
+
+    // Keep old callback flow (in case other screens rely on it)
+    widget.onCreate(client);
+
+    // Critical: also RETURN the client so caller can reliably add/update.
+    Navigator.pop(context, client);
   }
 
   @override
@@ -257,7 +252,6 @@ class _CreateClientPageState extends State<CreateClientPage> {
                   maxLines: 3,
                 ),
                 const SizedBox(height: 16),
-
                 Row(
                   children: [
                     Expanded(child: Text('Next appointment: $apptText')),
@@ -267,7 +261,6 @@ class _CreateClientPageState extends State<CreateClientPage> {
                     ),
                   ],
                 ),
-
                 const SizedBox(height: 16),
                 const Text(
                   'Movesense link',
@@ -292,9 +285,7 @@ class _CreateClientPageState extends State<CreateClientPage> {
                     ),
                   ],
                 ),
-
-                const SizedBox(height: 18),
-
+                const SizedBox(height: 16),
                 Row(
                   children: [
                     const Expanded(
@@ -303,25 +294,23 @@ class _CreateClientPageState extends State<CreateClientPage> {
                         style: TextStyle(fontWeight: FontWeight.bold),
                       ),
                     ),
-                    ElevatedButton.icon(
+                    TextButton.icon(
                       onPressed: _addExerciseDialog,
                       icon: const Icon(Icons.add),
-                      label: const Text('Add exercise'),
+                      label: const Text('Add'),
                     ),
                   ],
                 ),
                 const SizedBox(height: 8),
-
                 if (viewModel.exercises.isEmpty)
                   const Text('No exercises yet')
                 else
                   ...viewModel.exercises.map(
                     (e) => ListTile(
-                      contentPadding: EdgeInsets.zero,
                       title: Text(e.name),
                       subtitle: Text(
                         e.isCountable
-                            ? '${e.description}\n${e.sets} sets x ${e.reps} reps'
+                            ? '${e.description}\n${e.sets} sets × ${e.reps} reps'
                             : '${e.description}\n${e.time} sec',
                       ),
                       isThreeLine: true,
@@ -331,7 +320,6 @@ class _CreateClientPageState extends State<CreateClientPage> {
                       ),
                     ),
                   ),
-
                 const SizedBox(height: 24),
                 SizedBox(
                   width: double.infinity,

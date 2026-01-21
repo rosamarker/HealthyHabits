@@ -6,6 +6,7 @@ import '../model/clients.dart';
 import '../view_model/client_card_view_model.dart';
 import '../view_model/client_list_view_model.dart';
 import '../view_model/movesense_view_model.dart';
+import '../view_model/recording_view_model.dart';
 
 import '../widgets/movesense_block_widget.dart';
 import '../widgets/stop_watch_timer_widget.dart';
@@ -15,11 +16,15 @@ class ClientDetailPage extends StatefulWidget {
   final ClientListViewModel clientListVM;
   final MovesenseViewModel movesenseVM;
 
+  // Fixes analyzer: missing required argument recordingVM
+  final RecordingViewModel recordingVM;
+
   const ClientDetailPage({
     super.key,
     required this.viewModel,
     required this.clientListVM,
     required this.movesenseVM,
+    required this.recordingVM,
   });
 
   @override
@@ -33,6 +38,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
   @override
   void initState() {
     super.initState();
+
     for (final ex in widget.viewModel.client.exercises) {
       _exerciseDone[ex.exerciseId] = false;
       if (!ex.isCountable) {
@@ -62,8 +68,6 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
 
     return Scaffold(
       appBar: AppBar(title: Text(client.name), centerTitle: true),
-
-      // SCROLL FIX: ListView (not Column)
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -73,7 +77,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
                 radius: 40,
                 backgroundColor: Theme.of(context).colorScheme.primary,
                 child: Text(
-                  client.name[0],
+                  client.name.isNotEmpty ? client.name[0] : '?',
                   style: const TextStyle(color: Colors.white, fontSize: 30),
                 ),
               ),
@@ -81,7 +85,10 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(client.name, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                  Text(
+                    client.name,
+                    style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                  ),
                   const SizedBox(height: 4),
                   Row(
                     children: [
@@ -93,87 +100,90 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
               ),
             ],
           ),
-
           const SizedBox(height: 16),
           Text('Age: ${client.age}'),
           const SizedBox(height: 8),
           Text('Gender: ${client.gender}'),
           const SizedBox(height: 8),
           Text('Next Appointment: ${widget.viewModel.nextAppointmentFormatted}'),
-
           const SizedBox(height: 16),
           const Text('Motivation:', style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 4),
           Text(client.motivation.isNotEmpty ? client.motivation : 'No motivation notes added.'),
-
           const SizedBox(height: 16),
 
           // Movesense block on client page: link to this specific client
           MovesenseBlockWidget(
             vm: widget.movesenseVM,
+            recordingVM: widget.recordingVM,
             clients: [client],
             onLinkToClient: (updatedClient) {
               widget.clientListVM.updateClient(updatedClient);
-              // If you navigate back and forth, list will reflect it via VM.
               setState(() {});
             },
           ),
 
           const SizedBox(height: 16),
-          const Text('Exercises:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          const Text(
+            'Exercises:',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          ),
           const SizedBox(height: 8),
 
-          ...client.exercises.map((exercise) {
-            final done = _exerciseDone[exercise.exerciseId] ?? false;
-            final stopWatch = _stopWatches[exercise.exerciseId];
+          if (client.exercises.isEmpty)
+            const Text('No exercises added for this client.')
+          else
+            ...client.exercises.map((exercise) {
+              final done = _exerciseDone[exercise.exerciseId] ?? false;
+              final stopWatch = _stopWatches[exercise.exerciseId];
 
-            return Card(
-              margin: const EdgeInsets.symmetric(vertical: 4),
-              elevation: 2,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            exercise.name,
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              decoration: done ? TextDecoration.lineThrough : null,
-                              color: done ? Colors.grey : null,
+              return Card(
+                margin: const EdgeInsets.symmetric(vertical: 4),
+                elevation: 2,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              exercise.name,
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                decoration: done ? TextDecoration.lineThrough : null,
+                                color: done ? Colors.grey : null,
+                              ),
                             ),
                           ),
-                        ),
-                        if (exercise.isCountable)
-                          Text('${exercise.sets} sets • ${exercise.reps} reps')
-                        else
-                          Text('Time: ${exercise.time}s'),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    if (exercise.isCountable)
-                      Checkbox(
-                        value: done,
-                        onChanged: (val) => _toggleDone(exercise.exerciseId, val),
-                      )
-                    else if (stopWatch != null)
-                      Row(
-                        children: [
-                          const Icon(Icons.timer, color: Colors.orange),
-                          const SizedBox(width: 8),
-                          Expanded(child: StopwatchWidget(stopWatchTimer: stopWatch)),
+                          if (exercise.isCountable)
+                            Text('${exercise.sets} sets • ${exercise.reps} reps')
+                          else
+                            Text('Time: ${exercise.time}s'),
                         ],
                       ),
-                  ],
+                      const SizedBox(height: 8),
+                      if (exercise.isCountable)
+                        Checkbox(
+                          value: done,
+                          onChanged: (val) => _toggleDone(exercise.exerciseId, val),
+                        )
+                      else if (stopWatch != null)
+                        Row(
+                          children: [
+                            const Icon(Icons.timer, color: Colors.orange),
+                            const SizedBox(width: 8),
+                            Expanded(child: StopwatchWidget(stopWatchTimer: stopWatch)),
+                          ],
+                        ),
+                    ],
+                  ),
                 ),
-              ),
-            );
-          }),
+              );
+            }),
         ],
       ),
     );
