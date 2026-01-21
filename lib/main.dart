@@ -1,12 +1,11 @@
+// lib/main.dart
 import 'package:flutter/material.dart';
-
-import 'view/home_view.dart';
+import 'package:healthy_habits/view/home_view.dart'; // <-- IMPORTANT
 
 void main() {
   runApp(const HealthyHabitsApp());
 }
 
-/// Application root.
 class HealthyHabitsApp extends StatelessWidget {
   const HealthyHabitsApp({super.key});
 
@@ -14,10 +13,9 @@ class HealthyHabitsApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Healthy Habits',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.lightGreen,
-        ),
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.lightGreen),
         useMaterial3: true,
         appBarTheme: const AppBarTheme(
           backgroundColor: Colors.lightGreen,

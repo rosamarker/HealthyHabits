@@ -8,7 +8,6 @@ import '../view_model/movesense_view_model.dart';
 class MovesenseBlockWidget extends StatefulWidget {
   final MovesenseViewModel vm;
 
-  /// If you provide clients + onLinkToClient, the widget can link the connected device to a client.
   final List<Client> clients;
   final ValueChanged<Client>? onLinkToClient;
 
@@ -33,7 +32,7 @@ class _MovesenseBlockWidgetState extends State<MovesenseBlockWidget> {
       builder: (_, __) {
         final vm = widget.vm;
 
-        final sensorLabel = (vm.deviceName?.isNotEmpty == true)
+        final idOrName = (vm.deviceName?.isNotEmpty == true)
             ? vm.deviceName!
             : (vm.deviceId?.isNotEmpty == true ? vm.deviceId! : 'Sensor ID');
 
@@ -41,6 +40,12 @@ class _MovesenseBlockWidgetState extends State<MovesenseBlockWidget> {
             vm.batteryPercent != null ? '${vm.batteryPercent}%' : 'battery%';
 
         final hrText = vm.heartRate != null ? '${vm.heartRate}' : '--';
+
+        final statusLine = vm.isConnecting
+            ? 'Connecting...'
+            : (vm.isConnected ? 'Connected' : 'Not connected');
+
+        final canTapConnect = !vm.isConnecting;
 
         return Card(
           elevation: 2,
@@ -54,25 +59,37 @@ class _MovesenseBlockWidgetState extends State<MovesenseBlockWidget> {
                   style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
                 ),
                 const SizedBox(height: 8),
-                Text('$sensorLabel - $batteryText', style: const TextStyle(fontSize: 16)),
+
+                Text('$idOrName - $batteryText', style: const TextStyle(fontSize: 16)),
+                const SizedBox(height: 4),
+                Text(
+                  statusLine,
+                  style: TextStyle(color: vm.isConnecting ? Colors.orange : null),
+                ),
                 const SizedBox(height: 12),
 
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
                     TextButton.icon(
-                      onPressed: () async {
-                        if (vm.isConnected) {
-                          await vm.disconnect();
-                        } else {
-                          await _pickAndConnect(context);
-                        }
-                      },
+                      onPressed: !canTapConnect
+                          ? null
+                          : () async {
+                              if (vm.isConnected) {
+                                await vm.disconnect();
+                              } else {
+                                await _pickAndConnect(context);
+                              }
+                            },
                       icon: const Icon(Icons.bluetooth),
-                      label: Text(vm.isConnected ? 'Disconnect' : 'Connect'),
+                      label: Text(
+                        vm.isConnecting
+                            ? 'Connecting'
+                            : (vm.isConnected ? 'Disconnect' : 'Connect'),
+                      ),
                     ),
                     TextButton.icon(
-                      onPressed: vm.isConnected
+                      onPressed: vm.isConnected && !vm.isConnecting
                           ? () async {
                               if (vm.isStreaming) {
                                 await vm.stopHeartRate();
@@ -129,8 +146,9 @@ class _MovesenseBlockWidgetState extends State<MovesenseBlockWidget> {
                                 _selectedClientId == null)
                             ? null
                             : () {
-                                final client = widget.clients
-                                    .firstWhere((c) => c.clientId == _selectedClientId);
+                                final client = widget.clients.firstWhere(
+                                  (c) => c.clientId == _selectedClientId,
+                                );
 
                                 final updated = client.copyWith(
                                   movesenseDeviceId: vm.deviceId,
@@ -141,7 +159,9 @@ class _MovesenseBlockWidgetState extends State<MovesenseBlockWidget> {
 
                                 if (mounted) {
                                   ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text('Linked device to ${client.name}')),
+                                    SnackBar(
+                                      content: Text('Linked device to ${client.name}'),
+                                    ),
                                   );
                                 }
                               },
@@ -162,7 +182,6 @@ class _MovesenseBlockWidgetState extends State<MovesenseBlockWidget> {
     final vm = widget.vm;
 
     await vm.startScan();
-
     if (!mounted) return;
 
     await showModalBottomSheet(
@@ -177,7 +196,7 @@ class _MovesenseBlockWidgetState extends State<MovesenseBlockWidget> {
             if (devices.isEmpty) {
               return const Padding(
                 padding: EdgeInsets.all(16),
-                child: Text('Scanning... no devices yet'),
+                child: Text('Scanning for Movesense devices...'),
               );
             }
 
@@ -185,7 +204,7 @@ class _MovesenseBlockWidgetState extends State<MovesenseBlockWidget> {
               itemCount: devices.length,
               separatorBuilder: (_, __) => const Divider(height: 1),
               itemBuilder: (_, i) {
-                final d = devices[i];
+                final DiscoveredDevice d = devices[i];
                 return ListTile(
                   leading: const Icon(Icons.watch),
                   title: Text(d.name.isNotEmpty ? d.name : d.id),

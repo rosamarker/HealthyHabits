@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+enum MovesenseConnectionState { disconnected, connecting, connected }
+
 class MovesenseViewModel extends ChangeNotifier {
   final FlutterReactiveBle _ble = FlutterReactiveBle();
 
@@ -16,6 +18,8 @@ class MovesenseViewModel extends ChangeNotifier {
   bool _isScanning = false;
   bool _isStreaming = false;
 
+  MovesenseConnectionState _connState = MovesenseConnectionState.disconnected;
+
   String? _deviceId;
   String? _deviceName;
 
@@ -25,7 +29,9 @@ class MovesenseViewModel extends ChangeNotifier {
   bool get isScanning => _isScanning;
   bool get isStreaming => _isStreaming;
 
-  bool get isConnected => _deviceId != null;
+  MovesenseConnectionState get connectionState => _connState;
+  bool get isConnecting => _connState == MovesenseConnectionState.connecting;
+  bool get isConnected => _connState == MovesenseConnectionState.connected;
 
   List<DiscoveredDevice> get foundDevices => List.unmodifiable(_found);
 
@@ -36,11 +42,29 @@ class MovesenseViewModel extends ChangeNotifier {
   int? get heartRate => _heartRate;
 
   // Standard BLE UUIDs
-  static final Uuid _hrService = Uuid.parse('0000180d-0000-1000-8000-00805f9b34fb');
-  static final Uuid _hrChar = Uuid.parse('00002a37-0000-1000-8000-00805f9b34fb');
+  static final Uuid _hrService =
+      Uuid.parse('0000180d-0000-1000-8000-00805f9b34fb');
+  static final Uuid _hrChar =
+      Uuid.parse('00002a37-0000-1000-8000-00805f9b34fb');
 
-  static final Uuid _batteryService = Uuid.parse('0000180f-0000-1000-8000-00805f9b34fb');
-  static final Uuid _batteryChar = Uuid.parse('00002a19-0000-1000-8000-00805f9b34fb');
+  static final Uuid _batteryService =
+      Uuid.parse('0000180f-0000-1000-8000-00805f9b34fb');
+  static final Uuid _batteryChar =
+      Uuid.parse('00002a19-0000-1000-8000-00805f9b34fb');
+
+  // Filter: only show devices whose *name* looks like Movesense.
+  // Adjust these if your device advertises a different name.
+  bool _looksLikeMovesense(String name) {
+    final n = name.trim().toLowerCase();
+    if (n.isEmpty) return false;
+
+    // Common Movesense patterns
+    if (n.startsWith('movesense')) return true;
+    if (n.startsWith('mds')) return true;
+    if (n.contains('movesense')) return true;
+
+    return false;
+  }
 
   Future<bool> _ensurePermissions() async {
     if (defaultTargetPlatform == TargetPlatform.android) {
@@ -60,11 +84,12 @@ class MovesenseViewModel extends ChangeNotifier {
     _isScanning = true;
     notifyListeners();
 
+    // NOTE: we scan all services but filter by name to avoid Mac/iPhone/etc.
     _scanSub = _ble
         .scanForDevices(withServices: const [], scanMode: ScanMode.lowLatency)
         .listen((d) {
       final name = d.name.trim();
-      if (name.isEmpty) return;
+      if (!_looksLikeMovesense(name)) return;
 
       final idx = _found.indexWhere((x) => x.id == d.id);
       if (idx >= 0) {
@@ -94,6 +119,8 @@ class MovesenseViewModel extends ChangeNotifier {
 
     _deviceId = device.id;
     _deviceName = device.name;
+
+    _connState = MovesenseConnectionState.connecting;
     notifyListeners();
 
     _connSub = _ble
@@ -103,6 +130,7 @@ class MovesenseViewModel extends ChangeNotifier {
         )
         .listen((update) async {
       if (update.connectionState == DeviceConnectionState.connected) {
+        _connState = MovesenseConnectionState.connected;
         await _readBatteryOnce();
         notifyListeners();
       }
@@ -114,9 +142,12 @@ class MovesenseViewModel extends ChangeNotifier {
         _isStreaming = false;
         _heartRate = null;
 
+        _batteryPercent = null;
+
         _deviceId = null;
         _deviceName = null;
 
+        _connState = MovesenseConnectionState.disconnected;
         notifyListeners();
       }
     }, onError: (_) async {
@@ -134,8 +165,12 @@ class MovesenseViewModel extends ChangeNotifier {
     await _connSub?.cancel();
     _connSub = null;
 
+    _batteryPercent = null;
+
     _deviceId = null;
     _deviceName = null;
+
+    _connState = MovesenseConnectionState.disconnected;
 
     notifyListeners();
   }
@@ -155,7 +190,7 @@ class MovesenseViewModel extends ChangeNotifier {
         _batteryPercent = value[0].clamp(0, 100);
       }
     } catch (_) {
-      // Not all devices expose standard battery service.
+      // Not all Movesense firmwares expose standard battery service.
     }
   }
 
