@@ -31,12 +31,10 @@ class _HomePageState extends State<HomePage> {
   late final ClientListViewModel clientListVM;
   late final MovesenseViewModel movesenseVM;
 
-  // Recording pipeline
   late final RecordingRepository recordingRepo;
   late final RecordingService recordingService;
   late final RecordingViewModel recordingVM;
 
-  CalendarFormat _calendarFormat = CalendarFormat.month;
   DateTime _focusedDay = DateTime.now();
   DateTime _selectedDay = DateTime.now();
 
@@ -57,6 +55,15 @@ class _HomePageState extends State<HomePage> {
     recordingVM.dispose();
     movesenseVM.dispose();
     super.dispose();
+  }
+
+  void _upsertClient(Client c) {
+    final exists = clientListVM.clients.any((x) => x.clientId == c.clientId);
+    if (exists) {
+      clientListVM.updateClient(c);
+    } else {
+      clientListVM.addClient(c);
+    }
   }
 
   @override
@@ -88,19 +95,15 @@ class _HomePageState extends State<HomePage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // Movesense block (requires recordingVM in your current setup)
                   MovesenseBlockWidget(
                     vm: movesenseVM,
                     recordingVM: recordingVM,
                     clients: clients,
-                    onLinkToClient: (Client updated) {
-                      clientListVM.updateClient(updated);
-                    },
+                    onLinkToClient: (Client updated) => _upsertClient(updated),
                   ),
 
                   const SizedBox(height: 16),
 
-                  // Calendar (old behavior: markers + appointment list)
                   Card(
                     elevation: 2,
                     shape: RoundedRectangleBorder(
@@ -112,13 +115,15 @@ class _HomePageState extends State<HomePage> {
                         firstDay: DateTime.utc(2020, 1, 1),
                         lastDay: DateTime.utc(2035, 12, 31),
                         focusedDay: _focusedDay,
-                        calendarFormat: _calendarFormat,
-                        startingDayOfWeek: StartingDayOfWeek.monday,
+
+                        // Month only (old behavior)
+                        calendarFormat: CalendarFormat.month,
                         availableCalendarFormats: const {
                           CalendarFormat.month: 'Month',
-                          CalendarFormat.twoWeeks: '2 weeks',
-                          CalendarFormat.week: 'Week',
                         },
+
+                        startingDayOfWeek: StartingDayOfWeek.monday,
+
                         selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
                         onDaySelected: (selectedDay, focusedDay) {
                           setState(() {
@@ -126,30 +131,42 @@ class _HomePageState extends State<HomePage> {
                             _focusedDay = focusedDay;
                           });
                         },
-                        onFormatChanged: (format) {
-                          setState(() => _calendarFormat = format);
-                        },
-                        onPageChanged: (focusedDay) {
-                          _focusedDay = focusedDay;
-                        },
+                        onPageChanged: (focusedDay) => _focusedDay = focusedDay,
+
                         headerStyle: const HeaderStyle(
                           titleCentered: true,
-                          formatButtonVisible: true,
+                          formatButtonVisible: false,
                         ),
 
-                        // Event loader: client appointments
+                        // Today faded green, selected solid green
+                        calendarStyle: CalendarStyle(
+                          todayDecoration: BoxDecoration(
+                            color: Colors.green.withOpacity(0.25),
+                            shape: BoxShape.circle,
+                          ),
+                          todayTextStyle: const TextStyle(
+                            color: Colors.black87,
+                            fontWeight: FontWeight.w700,
+                          ),
+                          selectedDecoration: const BoxDecoration(
+                            color: Colors.green,
+                            shape: BoxShape.circle,
+                          ),
+                          selectedTextStyle: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+
+                        // Appointment markers on calendar (status-colored dots)
                         eventLoader: (day) {
-                          final dayStart = DateTime(day.year, day.month, day.day);
+                          final d0 = DateTime(day.year, day.month, day.day);
                           return clients.where((c) {
                             if (c.nextAppointment <= 0) return false;
                             final dt = DateTime.fromMillisecondsSinceEpoch(c.nextAppointment * 1000);
-                            return dt.year == dayStart.year &&
-                                dt.month == dayStart.month &&
-                                dt.day == dayStart.day;
+                            return dt.year == d0.year && dt.month == d0.month && dt.day == d0.day;
                           }).toList();
                         },
-
-                        // Markers: colored dots by client status (green/yellow/red)
                         calendarBuilders: CalendarBuilders(
                           markerBuilder: (context, day, events) {
                             if (events.isEmpty) return null;
@@ -184,15 +201,7 @@ class _HomePageState extends State<HomePage> {
 
                   const SizedBox(height: 12),
 
-                  // Appointment list for the selected day
-                  _AppointmentsForDay(
-                    selectedDay: _selectedDay,
-                    clients: clients,
-                    onClientTap: (c) => _openClientDetail(context, c),
-                  ),
-
-                  const SizedBox(height: 16),
-
+                  // Clients listed directly beneath calendar
                   Row(
                     children: [
                       Expanded(
@@ -207,6 +216,7 @@ class _HomePageState extends State<HomePage> {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 8),
 
                   if (clients.isEmpty)
                     Card(
@@ -250,6 +260,15 @@ class _HomePageState extends State<HomePage> {
                         );
                       },
                     ),
+
+                  const SizedBox(height: 12),
+
+                  // Optional: appointments card for selected day (keeps the “old feel”)
+                  _AppointmentsForDay(
+                    selectedDay: _selectedDay,
+                    clients: clients,
+                    onClientTap: (c) => _openClientDetail(context, c),
+                  ),
                 ],
               ),
             );
@@ -260,33 +279,34 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _openClientList(BuildContext context) {
-  Navigator.push(
-    context,
-    MaterialPageRoute(
-      builder: (_) => ClientListView(
-        clientListVM: clientListVM,
-        movesenseVM: movesenseVM,
-        recordingVM: recordingVM,
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ClientListView(
+          clientListVM: clientListVM,
+          movesenseVM: movesenseVM,
+          recordingVM: recordingVM,
+        ),
       ),
-    ),
-  );
-}
+    );
+  }
 
   Future<void> _openCreateClient(BuildContext context) async {
-    // This relies on CreateClientPage doing: Navigator.pop(context, client);
     final created = await Navigator.push<Client>(
       context,
       MaterialPageRoute(
         builder: (_) => CreateClientPage(
-          onCreate: (_) {}, // rely on returned Client to avoid double-add
+          // Upsert immediately (so even if the route doesn't return a Client,
+          // the list still updates).
+          onCreate: (c) => _upsertClient(c),
         ),
       ),
     );
 
+    // Also upsert from returned value (prevents “no clients” if onCreate
+    // wasn’t called for some reason).
     if (created != null) {
-      // Prevent double-add if any other flow also adds
-      final exists = clientListVM.clients.any((c) => c.clientId == created.clientId);
-      if (!exists) clientListVM.addClient(created);
+      _upsertClient(created);
     }
   }
 
@@ -331,15 +351,13 @@ class _AppointmentsForDay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final items = clients
-        .where((c) {
-          if (c.nextAppointment <= 0) return false;
-          final dt = DateTime.fromMillisecondsSinceEpoch(c.nextAppointment * 1000);
-          return dt.year == selectedDay.year &&
-              dt.month == selectedDay.month &&
-              dt.day == selectedDay.day;
-        })
-        .toList()
+    final items = clients.where((c) {
+      if (c.nextAppointment <= 0) return false;
+      final dt = DateTime.fromMillisecondsSinceEpoch(c.nextAppointment * 1000);
+      return dt.year == selectedDay.year &&
+          dt.month == selectedDay.month &&
+          dt.day == selectedDay.day;
+    }).toList()
       ..sort((a, b) => a.nextAppointment.compareTo(b.nextAppointment));
 
     if (items.isEmpty) return const SizedBox.shrink();
@@ -362,6 +380,7 @@ class _AppointmentsForDay extends StatelessWidget {
               final dt = DateTime.fromMillisecondsSinceEpoch(c.nextAppointment * 1000);
               final hh = dt.hour.toString().padLeft(2, '0');
               final mm = dt.minute.toString().padLeft(2, '0');
+
               return ListTile(
                 contentPadding: EdgeInsets.zero,
                 title: Text(c.name),
