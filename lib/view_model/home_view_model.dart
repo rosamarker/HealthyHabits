@@ -3,32 +3,33 @@ import 'package:flutter/foundation.dart';
 import '../model/clients.dart';
 
 class CalendarViewModel extends ChangeNotifier {
-  List<Client> _clients;
-
   DateTime focusedDay;
   DateTime? selectedDay;
 
+  List<Client> _clients;
+
   CalendarViewModel({required List<Client> initialClients})
-      : _clients = List<Client>.of(initialClients),
+      : _clients = List.of(initialClients),
         focusedDay = DateTime.now(),
         selectedDay = DateTime.now();
 
-  void selectDay(DateTime day) {
-    selectedDay = day;
+  void replaceClients(List<Client> newClients) {
+    _clients = List.of(newClients);
     notifyListeners();
   }
 
-  void replaceClients(List<Client> clients) {
-    _clients = List<Client>.of(clients);
+  void selectDay(DateTime day) {
+    selectedDay = DateTime(day.year, day.month, day.day);
+    notifyListeners();
   }
 
   List<Client> getClientsForDay(DateTime day) {
     final target = DateTime(day.year, day.month, day.day);
-
     return _clients.where((c) {
-      final d = DateTime.fromMillisecondsSinceEpoch(c.nextAppointment * 1000);
-      final cd = DateTime(d.year, d.month, d.day);
-      return cd == target;
+      if (c.nextAppointment <= 0) return false;
+      final dt = DateTime.fromMillisecondsSinceEpoch(c.nextAppointment * 1000);
+      final d = DateTime(dt.year, dt.month, dt.day);
+      return d == target;
     }).toList();
   }
 }

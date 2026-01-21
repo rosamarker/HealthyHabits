@@ -1,7 +1,5 @@
 // lib/view_model/movesense_view_model.dart
 import 'dart:async';
-import 'dart:typed_data';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -13,207 +11,161 @@ class MovesenseViewModel extends ChangeNotifier {
   StreamSubscription<ConnectionStateUpdate>? _connSub;
   StreamSubscription<List<int>>? _hrSub;
 
-  final List<DiscoveredDevice> _devices = [];
-  DiscoveredDevice? _selected;
+  final List<DiscoveredDevice> _found = [];
 
   bool _isScanning = false;
   bool _isStreaming = false;
 
-  DeviceConnectionState _connectionState = DeviceConnectionState.disconnected;
+  String? _deviceId;
+  String? _deviceName;
 
-  int? _heartRate;
   int? _batteryPercent;
+  int? _heartRate;
 
-  // Standard BLE services/characteristics (Movesense typically supports these)
-  static final Uuid _hrService =
-      Uuid.parse("0000180d-0000-1000-8000-00805f9b34fb");
-  static final Uuid _hrChar =
-      Uuid.parse("00002a37-0000-1000-8000-00805f9b34fb");
-
-  static final Uuid _batteryService =
-      Uuid.parse("0000180f-0000-1000-8000-00805f9b34fb");
-  static final Uuid _batteryChar =
-      Uuid.parse("00002a19-0000-1000-8000-00805f9b34fb");
-
-  // -------- Getters used by your widget --------
   bool get isScanning => _isScanning;
   bool get isStreaming => _isStreaming;
 
-  int? get heartRate => _heartRate;
+  bool get isConnected => _deviceId != null;
+
+  List<DiscoveredDevice> get foundDevices => List.unmodifiable(_found);
+
+  String? get deviceId => _deviceId;
+  String? get deviceName => _deviceName;
+
   int? get batteryPercent => _batteryPercent;
+  int? get heartRate => _heartRate;
 
-  List<DiscoveredDevice> get discoveredDevices => List.unmodifiable(_devices);
+  // Standard BLE UUIDs
+  static final Uuid _hrService = Uuid.parse('0000180d-0000-1000-8000-00805f9b34fb');
+  static final Uuid _hrChar = Uuid.parse('00002a37-0000-1000-8000-00805f9b34fb');
 
-  bool get isConnected => _connectionState == DeviceConnectionState.connected;
-  DeviceConnectionState get connectionState => _connectionState;
+  static final Uuid _batteryService = Uuid.parse('0000180f-0000-1000-8000-00805f9b34fb');
+  static final Uuid _batteryChar = Uuid.parse('00002a19-0000-1000-8000-00805f9b34fb');
 
-  String? get deviceId => _selected?.id;
-  String? get deviceName {
-    final n = _selected?.name ?? '';
-    if (n.trim().isNotEmpty) return n;
-    return _selected?.id;
-  }
-
-  // -------- Permissions --------
-  Future<void> _ensureBlePermissions() async {
-    // Keep it permissive across iOS/Android.
-    // On iOS, many of these will be "granted" or ignored depending on OS version.
-    final perms = <Permission>[
-      Permission.bluetooth,
-      Permission.bluetoothScan,
-      Permission.bluetoothConnect,
-      Permission.locationWhenInUse,
-    ];
-
-    for (final p in perms) {
-      final status = await p.status;
-      if (!status.isGranted) {
-        await p.request();
-      }
+  Future<bool> _ensurePermissions() async {
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      final status = await Permission.locationWhenInUse.request();
+      return status.isGranted;
     }
+    return true;
   }
 
-  // -------- Scan --------
-  Future<void> startScan({Duration timeout = const Duration(seconds: 6)}) async {
-    await _ensureBlePermissions();
+  Future<void> startScan() async {
+    final ok = await _ensurePermissions();
+    if (!ok) return;
 
     await stopScan();
 
-    _devices.clear();
+    _found.clear();
     _isScanning = true;
     notifyListeners();
 
     _scanSub = _ble
-        .scanForDevices(
-          withServices: const [],
-          scanMode: ScanMode.lowLatency,
-        )
+        .scanForDevices(withServices: const [], scanMode: ScanMode.lowLatency)
         .listen((d) {
-      // Filter: keep Movesense-y devices; adjust if your device advertises differently
-      final name = (d.name).toLowerCase();
-      final looksLikeMovesense =
-          name.contains('movesense') || name.contains('msense');
+      final name = d.name.trim();
+      if (name.isEmpty) return;
 
-      if (!looksLikeMovesense) return;
-
-      final already = _devices.any((x) => x.id == d.id);
-      if (!already) {
-        _devices.add(d);
-        notifyListeners();
+      final idx = _found.indexWhere((x) => x.id == d.id);
+      if (idx >= 0) {
+        _found[idx] = d;
+      } else {
+        _found.add(d);
       }
+      notifyListeners();
     }, onError: (_) {
       _isScanning = false;
       notifyListeners();
-    });
-
-    // Auto stop after timeout
-    Future.delayed(timeout, () async {
-      if (_isScanning) {
-        await stopScan();
-      }
     });
   }
 
   Future<void> stopScan() async {
     await _scanSub?.cancel();
     _scanSub = null;
-    _isScanning = false;
-    notifyListeners();
-  }
-
-  // Convenience: scan + connect to first found device
-  Future<void> quickConnect() async {
-    if (isConnected) return;
-
-    await startScan(timeout: const Duration(seconds: 6));
-
-    // Give scan a moment to populate results
-    await Future.delayed(const Duration(seconds: 2));
-
-    if (_devices.isNotEmpty) {
-      await connectToDevice(_devices.first);
-    } else {
-      // Stop scan if nothing found
-      await stopScan();
+    if (_isScanning) {
+      _isScanning = false;
+      notifyListeners();
     }
   }
 
-  // -------- Connect / Disconnect --------
-  Future<void> connectToDevice(DiscoveredDevice device) async {
-    await _ensureBlePermissions();
+  Future<void> connect(DiscoveredDevice device) async {
     await stopScan();
+    await disconnect();
 
-    _selected = device;
-    _connectionState = DeviceConnectionState.connecting;
+    _deviceId = device.id;
+    _deviceName = device.name;
     notifyListeners();
 
-    await _connSub?.cancel();
     _connSub = _ble
         .connectToDevice(
           id: device.id,
-          connectionTimeout: const Duration(seconds: 12),
+          connectionTimeout: const Duration(seconds: 15),
         )
         .listen((update) async {
-      _connectionState = update.connectionState;
+      if (update.connectionState == DeviceConnectionState.connected) {
+        await _readBatteryOnce();
+        notifyListeners();
+      }
 
-      // If we disconnect, stop streaming
-      if (_connectionState == DeviceConnectionState.disconnected) {
-        _isStreaming = false;
+      if (update.connectionState == DeviceConnectionState.disconnected) {
         await _hrSub?.cancel();
         _hrSub = null;
-      }
 
-      notifyListeners();
+        _isStreaming = false;
+        _heartRate = null;
 
-      // Read battery when connected
-      if (_connectionState == DeviceConnectionState.connected) {
-        await _readBattery();
+        _deviceId = null;
+        _deviceName = null;
+
+        notifyListeners();
       }
-    }, onError: (_) {
-      _connectionState = DeviceConnectionState.disconnected;
-      _isStreaming = false;
-      notifyListeners();
+    }, onError: (_) async {
+      await disconnect();
     });
   }
 
   Future<void> disconnect() async {
-    await stopHeartRate();
+    await _hrSub?.cancel();
+    _hrSub = null;
+
+    _isStreaming = false;
+    _heartRate = null;
 
     await _connSub?.cancel();
     _connSub = null;
 
-    _connectionState = DeviceConnectionState.disconnected;
+    _deviceId = null;
+    _deviceName = null;
+
     notifyListeners();
   }
 
-  // -------- Battery --------
-  Future<void> _readBattery() async {
-    if (!isConnected || _selected == null) return;
+  Future<void> _readBatteryOnce() async {
+    if (_deviceId == null) return;
 
     final qc = QualifiedCharacteristic(
-      deviceId: _selected!.id,
+      deviceId: _deviceId!,
       serviceId: _batteryService,
       characteristicId: _batteryChar,
     );
 
     try {
-      final data = await _ble.readCharacteristic(qc);
-      if (data.isNotEmpty) {
-        _batteryPercent = data.first;
-        notifyListeners();
+      final value = await _ble.readCharacteristic(qc);
+      if (value.isNotEmpty) {
+        _batteryPercent = value[0].clamp(0, 100);
       }
     } catch (_) {
-      // Battery read is optional; ignore failures to keep UX smooth
+      // Not all devices expose standard battery service.
     }
   }
 
-  // -------- Heart rate streaming --------
   Future<void> startHeartRate() async {
-    if (!isConnected || _selected == null) return;
-    if (_isStreaming) return;
+    if (_deviceId == null) return;
+
+    await stopHeartRate();
 
     final qc = QualifiedCharacteristic(
-      deviceId: _selected!.id,
+      deviceId: _deviceId!,
       serviceId: _hrService,
       characteristicId: _hrChar,
     );
@@ -221,9 +173,8 @@ class MovesenseViewModel extends ChangeNotifier {
     _isStreaming = true;
     notifyListeners();
 
-    await _hrSub?.cancel();
     _hrSub = _ble.subscribeToCharacteristic(qc).listen((data) {
-      final hr = _parseHeartRateMeasurement(data);
+      final hr = _parseHeartRate(data);
       if (hr != null) {
         _heartRate = hr;
         notifyListeners();
@@ -238,44 +189,30 @@ class MovesenseViewModel extends ChangeNotifier {
     await _hrSub?.cancel();
     _hrSub = null;
 
-    _isStreaming = false;
-    notifyListeners();
+    if (_isStreaming) {
+      _isStreaming = false;
+      notifyListeners();
+    }
   }
 
-  int? _parseHeartRateMeasurement(List<int> data) {
-    // BLE Heart Rate Measurement (0x2A37)
-    // byte0 = flags; if bit0 set => 16-bit HR, else 8-bit HR
+  int? _parseHeartRate(List<int> data) {
     if (data.length < 2) return null;
     final flags = data[0];
-    final is16Bit = (flags & 0x01) != 0;
+    final isUint16 = (flags & 0x01) == 0x01;
 
-    if (!is16Bit) {
-      return data[1];
-    }
-
+    if (!isUint16) return data[1];
     if (data.length < 3) return null;
-    return data[1] | (data[2] << 8);
+
+    final lo = data[1];
+    final hi = data[2];
+    return (hi << 8) | lo;
   }
 
-  // -------- Cleanup --------
   @override
   void dispose() {
     _scanSub?.cancel();
     _connSub?.cancel();
     _hrSub?.cancel();
     super.dispose();
-  }
-
-  // -------- Fallback "empty" device (if you need it elsewhere) --------
-  // Kept here because you previously had an error about DiscoveredDevice(...) params.
-  DiscoveredDevice emptyDevice() {
-    return DiscoveredDevice(
-      id: '',
-      name: '',
-      serviceUuids: const [],
-      rssi: 0,
-      manufacturerData: Uint8List(0),
-      serviceData: const {},
-    );
   }
 }

@@ -4,6 +4,7 @@ import '../model/clients.dart';
 
 class ClientListViewModel extends ChangeNotifier {
   final List<Client> _clients = [];
+
   List<Client> get clients => List.unmodifiable(_clients);
 
   void addClient(Client client) {
@@ -20,21 +21,6 @@ class ClientListViewModel extends ChangeNotifier {
     final index = _clients.indexWhere((c) => c.clientId == updated.clientId);
     if (index == -1) return;
     _clients[index] = updated;
-    notifyListeners();
-  }
-
-  void setMovesenseForClient({
-    required String clientId,
-    required String? deviceId,
-    required String? deviceName,
-  }) {
-    final index = _clients.indexWhere((c) => c.clientId == clientId);
-    if (index == -1) return;
-
-    _clients[index] = _clients[index].copyWith(
-      movesenseDeviceId: deviceId,
-      movesenseDeviceName: deviceName,
-    );
     notifyListeners();
   }
 }

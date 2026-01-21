@@ -7,8 +7,10 @@ import '../view_model/client_list_view_model.dart';
 import '../view_model/client_card_view_model.dart';
 import '../view_model/home_view_model.dart';
 import '../view_model/movesense_view_model.dart';
+
 import '../widgets/client_card_widget.dart';
 import '../widgets/movesense_block_widget.dart';
+
 import 'client_card_view.dart';
 import 'client_list_view.dart';
 
@@ -23,7 +25,7 @@ class _HomePageState extends State<HomePage> {
   late final ClientListViewModel clientListVM;
   late final CalendarViewModel calendarVM;
 
-  // Shared Movesense VM for the Home page block
+  // IMPORTANT: single instance shared across pages
   late final MovesenseViewModel movesenseVM;
 
   @override
@@ -31,8 +33,9 @@ class _HomePageState extends State<HomePage> {
     super.initState();
 
     clientListVM = ClientListViewModel();
+    movesenseVM = MovesenseViewModel();
 
-    // Demo clients
+    // Demo data (optional)
     clientListVM.addClient(
       const Client(
         clientId: '1',
@@ -42,58 +45,11 @@ class _HomePageState extends State<HomePage> {
         active: 0,
         nextAppointment: 1672531200,
         motivation: 'Motivated',
-        exercises: [
-          Exercise(
-            exerciseId: 'e1',
-            name: 'Squats',
-            description: 'Bodyweight squats',
-            sets: 3,
-            reps: 12,
-            time: 0,
-            isCountable: true,
-          ),
-          Exercise(
-            exerciseId: 'e2',
-            name: 'Plank',
-            description: 'Core stability hold',
-            sets: 3,
-            reps: 0,
-            time: 30,
-            isCountable: false,
-          ),
-        ],
-      ),
-    );
-
-    clientListVM.addClient(
-      const Client(
-        clientId: '2',
-        name: 'Mark',
-        age: 30,
-        gender: 'Male',
-        active: 1,
-        nextAppointment: 1672531200,
-        motivation: 'Needs support',
-        exercises: [],
-      ),
-    );
-
-    clientListVM.addClient(
-      const Client(
-        clientId: '3',
-        name: 'Sophia',
-        age: 28,
-        gender: 'Female',
-        active: 2,
-        nextAppointment: 1672531200,
-        motivation: 'Struggling',
         exercises: [],
       ),
     );
 
     calendarVM = CalendarViewModel(initialClients: List.of(clientListVM.clients));
-
-    movesenseVM = MovesenseViewModel();
   }
 
   @override
@@ -105,12 +61,7 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // FIX: force AppBar color
-      appBar: AppBar(
-        title: const Text('Healthy Habits'),
-        backgroundColor: Colors.lightGreen,
-        foregroundColor: Colors.white,
-      ),
+      appBar: AppBar(title: const Text('Healthy Habits')),
       drawer: Drawer(
         child: SafeArea(
           child: AnimatedBuilder(
@@ -131,11 +82,7 @@ class _HomePageState extends State<HomePage> {
                     (client) => ListTile(
                       leading: const Icon(Icons.person),
                       title: Text(client.name),
-                      trailing: Icon(
-                        Icons.circle,
-                        color: _statusColor(client.active),
-                        size: 16,
-                      ),
+                      trailing: Icon(Icons.circle, color: _statusColor(client.active), size: 16),
                       onTap: () {
                         Navigator.pop(context);
                         Navigator.push(
@@ -143,6 +90,8 @@ class _HomePageState extends State<HomePage> {
                           MaterialPageRoute(
                             builder: (_) => ClientDetailPage(
                               viewModel: ClientDetailViewModel(client: client),
+                              clientListVM: clientListVM,
+                              movesenseVM: movesenseVM,
                             ),
                           ),
                         );
@@ -155,138 +104,119 @@ class _HomePageState extends State<HomePage> {
           ),
         ),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            const Text(
-              'Welcome',
-              style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
 
-            // NEW: Movesense block on Home page
-            MovesenseBlockWidget(movesenseVM: movesenseVM),
+      // SCROLL FIX: Use ONE ListView as the page body
+      body: AnimatedBuilder(
+        animation: clientListVM,
+        builder: (_, __) {
+          calendarVM.replaceClients(clientListVM.clients);
 
-            const SizedBox(height: 16),
+          final selected = calendarVM.selectedDay ?? DateTime.now();
+          final clientsForDay = calendarVM.getClientsForDay(selected);
 
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: () {
+          return ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              const Text('Welcome', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => ClientListView(
+                              clientListVM: clientListVM,
+                              movesenseVM: movesenseVM,
+                            ),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.people),
+                      label: const Text('Client list'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () {},
+                      icon: const Icon(Icons.message),
+                      label: const Text('WhatsApp'),
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 16),
+
+              // Movesense block on Home + can link to any client
+              MovesenseBlockWidget(
+                vm: movesenseVM,
+                clients: clientListVM.clients,
+                onLinkToClient: (updated) => clientListVM.updateClient(updated),
+              ),
+
+              const SizedBox(height: 16),
+
+              TableCalendar(
+                firstDay: DateTime.utc(2020, 1, 1),
+                lastDay: DateTime.utc(2030, 12, 31),
+                focusedDay: calendarVM.focusedDay,
+                selectedDayPredicate: (day) => isSameDay(calendarVM.selectedDay, day),
+                onDaySelected: (selectedDay, focusedDay) {
+                  setState(() {
+                    calendarVM.selectDay(selectedDay);
+                    calendarVM.focusedDay = focusedDay;
+                  });
+                },
+                onPageChanged: (focusedDay) {
+                  setState(() => calendarVM.focusedDay = focusedDay);
+                },
+                headerStyle: const HeaderStyle(formatButtonVisible: false, titleCentered: true),
+                calendarStyle: CalendarStyle(
+                  selectedDecoration: const BoxDecoration(color: Colors.green, shape: BoxShape.circle),
+                  selectedTextStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                  todayDecoration: BoxDecoration(color: Colors.green.withOpacity(0.25), shape: BoxShape.circle),
+                  todayTextStyle: const TextStyle(color: Colors.green, fontWeight: FontWeight.w600),
+                ),
+              ),
+
+              const SizedBox(height: 16),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text('Clients', style: Theme.of(context).textTheme.titleMedium),
+              ),
+              const SizedBox(height: 8),
+
+              if (clientsForDay.isEmpty)
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('No clients for the selected day'),
+                )
+              else
+                ...clientsForDay.map(
+                  (client) => ClientCardWidget(
+                    client: client,
+                    onTap: () {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) => ClientListView(clientListVM: clientListVM),
+                          builder: (_) => ClientDetailPage(
+                            viewModel: ClientDetailViewModel(client: client),
+                            clientListVM: clientListVM,
+                            movesenseVM: movesenseVM,
+                          ),
                         ),
                       );
                     },
-                    icon: const Icon(Icons.people),
-                    label: const Text('Client list'),
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: () {},
-                    icon: const Icon(Icons.message),
-                    label: const Text('WhatsApp'),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-
-            TableCalendar(
-              firstDay: DateTime.utc(2020, 1, 1),
-              lastDay: DateTime.utc(2030, 12, 31),
-              focusedDay: calendarVM.focusedDay,
-              selectedDayPredicate: (day) =>
-                  isSameDay(calendarVM.selectedDay ?? DateTime.now(), day),
-              onDaySelected: (selectedDay, focusedDay) {
-                setState(() {
-                  calendarVM.selectDay(selectedDay);
-                  calendarVM.focusedDay = focusedDay;
-                });
-              },
-              onPageChanged: (focusedDay) {
-                setState(() => calendarVM.focusedDay = focusedDay);
-              },
-              headerStyle: const HeaderStyle(
-                formatButtonVisible: false,
-                titleCentered: true,
-              ),
-              calendarStyle: CalendarStyle(
-                selectedDecoration: const BoxDecoration(
-                  color: Colors.green,
-                  shape: BoxShape.circle,
-                ),
-                selectedTextStyle: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                ),
-                todayDecoration: BoxDecoration(
-                  color: Colors.green.withOpacity(0.25),
-                  shape: BoxShape.circle,
-                ),
-                todayTextStyle: const TextStyle(
-                  color: Colors.green,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 16),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Clients',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-            ),
-            const SizedBox(height: 8),
-
-            AnimatedBuilder(
-              animation: clientListVM,
-              builder: (_, __) {
-                calendarVM.replaceClients(clientListVM.clients);
-
-                final list = calendarVM.getClientsForDay(
-                  calendarVM.selectedDay ?? DateTime.now(),
-                );
-
-                if (list.isEmpty) {
-                  return const Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text('No clients for the selected day'),
-                  );
-                }
-
-                return Column(
-                  children: list
-                      .map(
-                        (client) => ClientCardWidget(
-                          client: client,
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => ClientDetailPage(
-                                  viewModel: ClientDetailViewModel(client: client),
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      )
-                      .toList(),
-                );
-              },
-            ),
-          ],
-        ),
+            ],
+          );
+        },
       ),
     );
   }

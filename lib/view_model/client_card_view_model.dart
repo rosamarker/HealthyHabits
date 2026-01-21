@@ -3,12 +3,20 @@ import 'package:flutter/material.dart';
 import '../model/clients.dart';
 
 class ClientDetailViewModel extends ChangeNotifier {
-  final Client client;
+  Client _client;
 
-  ClientDetailViewModel({required this.client});
+  ClientDetailViewModel({required Client client}) : _client = client;
+
+  Client get client => _client;
+
+  // Allow the page to reflect changes if caller updates the Client instance
+  void setClient(Client updated) {
+    _client = updated;
+    notifyListeners();
+  }
 
   Color get statusColor {
-    switch (client.active) {
+    switch (_client.active) {
       case 0:
         return Colors.green;
       case 1:
@@ -21,9 +29,8 @@ class ClientDetailViewModel extends ChangeNotifier {
   }
 
   String get nextAppointmentFormatted {
-    final seconds = client.nextAppointment;
-    if (seconds <= 0) return 'Not set';
-
+    final seconds = _client.nextAppointment;
+    if (seconds <= 0) return 'No appointment set';
     final dt = DateTime.fromMillisecondsSinceEpoch(seconds * 1000);
     final y = dt.year.toString().padLeft(4, '0');
     final m = dt.month.toString().padLeft(2, '0');

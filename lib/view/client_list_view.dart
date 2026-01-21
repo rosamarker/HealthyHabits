@@ -4,16 +4,20 @@ import 'package:flutter/material.dart';
 import '../model/clients.dart';
 import '../view_model/client_list_view_model.dart';
 import '../view_model/client_card_view_model.dart';
+import '../view_model/movesense_view_model.dart';
+
 import '../widgets/client_card_widget.dart';
-import 'client_card_view.dart';
 import 'create_client_view.dart';
+import 'client_card_view.dart';
 
 class ClientListView extends StatelessWidget {
   final ClientListViewModel clientListVM;
+  final MovesenseViewModel movesenseVM;
 
   const ClientListView({
     super.key,
     required this.clientListVM,
+    required this.movesenseVM,
   });
 
   @override
@@ -26,9 +30,7 @@ class ClientListView extends StatelessWidget {
             context,
             MaterialPageRoute(
               builder: (_) => CreateClientPage(
-                onCreate: (Client created) {
-                  clientListVM.addClient(created);
-                },
+                onCreate: (Client created) => clientListVM.addClient(created),
               ),
             ),
           );
@@ -41,7 +43,7 @@ class ClientListView extends StatelessWidget {
           final clients = clientListVM.clients;
 
           if (clients.isEmpty) {
-            return const Center(child: Text('No clients yet'));
+            return const Center(child: Text('No clients yet.'));
           }
 
           return ListView.builder(
@@ -62,8 +64,8 @@ class ClientListView extends StatelessWidget {
                   return await showDialog<bool>(
                         context: context,
                         builder: (ctx) => AlertDialog(
-                          title: const Text('Delete client'),
-                          content: Text('Delete ${client.name}'),
+                          title: const Text('Delete client?'),
+                          content: Text('Delete ${client.name}? This cannot be undone.'),
                           actions: [
                             TextButton(
                               onPressed: () => Navigator.pop(ctx, false),
@@ -89,6 +91,8 @@ class ClientListView extends StatelessWidget {
                           MaterialPageRoute(
                             builder: (_) => ClientDetailPage(
                               viewModel: ClientDetailViewModel(client: client),
+                              clientListVM: clientListVM,
+                              movesenseVM: movesenseVM,
                             ),
                           ),
                         );
@@ -105,9 +109,7 @@ class ClientListView extends StatelessWidget {
                             MaterialPageRoute(
                               builder: (_) => CreateClientPage(
                                 initialClient: client,
-                                onCreate: (Client updated) {
-                                  clientListVM.updateClient(updated);
-                                },
+                                onCreate: (Client updated) => clientListVM.updateClient(updated),
                               ),
                             ),
                           );
