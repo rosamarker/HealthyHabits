@@ -1,37 +1,46 @@
 // lib/view_model/client_list_view_model.dart
 import 'package:flutter/foundation.dart';
+
 import '../model/clients.dart';
+import '../services/client_repository.dart';
 
 class ClientListViewModel extends ChangeNotifier {
-  // Singleton: one shared list across the whole app.
-  static final ClientListViewModel _instance = ClientListViewModel._internal();
-  factory ClientListViewModel() => _instance;
-  ClientListViewModel._internal();
+  final ClientRepository repo;
+
+  ClientListViewModel({required this.repo});
 
   final List<Client> _clients = [];
-
   List<Client> get clients => List.unmodifiable(_clients);
 
-  /// Add-or-update by clientId (prevents duplicates when we both callback + return value).
-  void addClient(Client client) {
-    final index = _clients.indexWhere((c) => c.clientId == client.clientId);
-    if (index >= 0) {
-      _clients[index] = client;
-    } else {
-      _clients.add(client);
-    }
+  bool _loaded = false;
+  bool get isLoaded => _loaded;
+
+  Future<void> load() async {
+    final loaded = await repo.loadAll();
+    _clients
+      ..clear()
+      ..addAll(loaded);
+    _loaded = true;
     notifyListeners();
   }
 
-  void removeClient(String clientId) {
+  Future<void> addClient(Client client) async {
+    _clients.add(client);
+    await repo.upsert(client);
+    notifyListeners();
+  }
+
+  Future<void> removeClient(String clientId) async {
     _clients.removeWhere((c) => c.clientId == clientId);
+    await repo.delete(clientId);
     notifyListeners();
   }
 
-  void updateClient(Client updated) {
+  Future<void> updateClient(Client updated) async {
     final index = _clients.indexWhere((c) => c.clientId == updated.clientId);
     if (index == -1) return;
     _clients[index] = updated;
+    await repo.upsert(updated);
     notifyListeners();
   }
 }

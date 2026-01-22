@@ -58,7 +58,14 @@ dependencies:
 
   # Permissions (Android BLE)
   permission_handler: ^11.3.1
+
+  # Stopwatch / Timer
   stop_watch_timer: ^3.2.2
+
+  # Streaming data
+  sembast: ^3.7.2
+  path_provider: ^2.1.4
+  path: ^1.9.0
 
 dev_dependencies:
   flutter_launcher_icons: ^0.13.1

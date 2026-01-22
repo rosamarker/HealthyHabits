@@ -13,9 +13,10 @@ import '../view_model/client_list_view_model.dart';
 import '../view_model/movesense_view_model.dart';
 import '../view_model/recording_view_model.dart';
 
-import '../services/recording_service.dart';
-import '../services/recording_repository.dart';
+import '../services/file_client_repository.dart';
 import '../services/file_recording_repository.dart';
+import '../services/recording_repository.dart';
+import '../services/recording_service.dart';
 
 import '../widgets/client_card_widget.dart';
 import '../widgets/movesense_block_widget.dart';
@@ -35,6 +36,8 @@ class _HomePageState extends State<HomePage> {
   late final RecordingService recordingService;
   late final RecordingViewModel recordingVM;
 
+  // Old-calendar behavior: month-only
+  CalendarFormat _calendarFormat = CalendarFormat.month;
   DateTime _focusedDay = DateTime.now();
   DateTime _selectedDay = DateTime.now();
 
@@ -42,12 +45,16 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
 
-    clientListVM = ClientListViewModel();
+    // FIX: ClientListViewModel now requires repo
+    clientListVM = ClientListViewModel(repo: FileClientRepository());
     movesenseVM = MovesenseViewModel();
 
     recordingRepo = FileRecordingRepository();
     recordingService = RecordingService(repo: recordingRepo, movesenseVM: movesenseVM);
     recordingVM = RecordingViewModel(service: recordingService);
+
+    // Load persisted clients
+    Future.microtask(() => clientListVM.load());
   }
 
   @override
@@ -55,15 +62,6 @@ class _HomePageState extends State<HomePage> {
     recordingVM.dispose();
     movesenseVM.dispose();
     super.dispose();
-  }
-
-  void _upsertClient(Client c) {
-    final exists = clientListVM.clients.any((x) => x.clientId == c.clientId);
-    if (exists) {
-      clientListVM.updateClient(c);
-    } else {
-      clientListVM.addClient(c);
-    }
   }
 
   @override
@@ -90,6 +88,11 @@ class _HomePageState extends State<HomePage> {
           builder: (_, __) {
             final clients = clientListVM.clients;
 
+            // Optional: show a simple loader until first load completes
+            if (!clientListVM.isLoaded) {
+              return const Center(child: CircularProgressIndicator());
+            }
+
             return SingleChildScrollView(
               padding: const EdgeInsets.all(16),
               child: Column(
@@ -99,7 +102,9 @@ class _HomePageState extends State<HomePage> {
                     vm: movesenseVM,
                     recordingVM: recordingVM,
                     clients: clients,
-                    onLinkToClient: (Client updated) => _upsertClient(updated),
+                    onLinkToClient: (Client updated) async {
+                      await clientListVM.updateClient(updated);
+                    },
                   ),
 
                   const SizedBox(height: 16),
@@ -116,11 +121,12 @@ class _HomePageState extends State<HomePage> {
                         lastDay: DateTime.utc(2035, 12, 31),
                         focusedDay: _focusedDay,
 
-                        // Month only (old behavior)
-                        calendarFormat: CalendarFormat.month,
+                        // Month-only
+                        calendarFormat: _calendarFormat,
                         availableCalendarFormats: const {
                           CalendarFormat.month: 'Month',
                         },
+                        onFormatChanged: (_) {},
 
                         startingDayOfWeek: StartingDayOfWeek.monday,
 
@@ -131,34 +137,31 @@ class _HomePageState extends State<HomePage> {
                             _focusedDay = focusedDay;
                           });
                         },
-                        onPageChanged: (focusedDay) => _focusedDay = focusedDay,
+                        onPageChanged: (focusedDay) {
+                          _focusedDay = focusedDay;
+                        },
 
                         headerStyle: const HeaderStyle(
                           titleCentered: true,
                           formatButtonVisible: false,
                         ),
 
-                        // Today faded green, selected solid green
+                        // “Old calendar”: selected = green, today = faded green
                         calendarStyle: CalendarStyle(
-                          todayDecoration: BoxDecoration(
-                            color: Colors.green.withOpacity(0.25),
-                            shape: BoxShape.circle,
-                          ),
-                          todayTextStyle: const TextStyle(
-                            color: Colors.black87,
-                            fontWeight: FontWeight.w700,
-                          ),
                           selectedDecoration: const BoxDecoration(
                             color: Colors.green,
                             shape: BoxShape.circle,
                           ),
-                          selectedTextStyle: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w700,
+                          selectedTextStyle: const TextStyle(color: Colors.white),
+                          todayDecoration: BoxDecoration(
+                            color: Colors.green.withOpacity(0.25),
+                            shape: BoxShape.circle,
                           ),
+                          todayTextStyle: const TextStyle(color: Colors.black),
+                          markersAlignment: Alignment.bottomCenter,
                         ),
 
-                        // Appointment markers on calendar (status-colored dots)
+                        // Mark days with appointments
                         eventLoader: (day) {
                           final d0 = DateTime(day.year, day.month, day.day);
                           return clients.where((c) {
@@ -167,6 +170,7 @@ class _HomePageState extends State<HomePage> {
                             return dt.year == d0.year && dt.month == d0.month && dt.day == d0.day;
                           }).toList();
                         },
+
                         calendarBuilders: CalendarBuilders(
                           markerBuilder: (context, day, events) {
                             if (events.isEmpty) return null;
@@ -201,7 +205,15 @@ class _HomePageState extends State<HomePage> {
 
                   const SizedBox(height: 12),
 
-                  // Clients listed directly beneath calendar
+                  // Clients listed beneath calendar (appointments on selected day)
+                  _AppointmentsForDay(
+                    selectedDay: _selectedDay,
+                    clients: clients,
+                    onClientTap: (c) => _openClientDetail(context, c),
+                  ),
+
+                  const SizedBox(height: 16),
+
                   Row(
                     children: [
                       Expanded(
@@ -216,7 +228,6 @@ class _HomePageState extends State<HomePage> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
 
                   if (clients.isEmpty)
                     Card(
@@ -231,11 +242,11 @@ class _HomePageState extends State<HomePage> {
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             const Text(
-                              'No clients yet.',
+                              'No clients yet',
                               style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                             ),
                             const SizedBox(height: 8),
-                            const Text('Tap “Add client” to create your first client.'),
+                            const Text('Tap “Add client” to create your first client'),
                             const SizedBox(height: 12),
                             ElevatedButton.icon(
                               onPressed: () => _openCreateClient(context),
@@ -260,15 +271,6 @@ class _HomePageState extends State<HomePage> {
                         );
                       },
                     ),
-
-                  const SizedBox(height: 12),
-
-                  // Optional: appointments card for selected day (keeps the “old feel”)
-                  _AppointmentsForDay(
-                    selectedDay: _selectedDay,
-                    clients: clients,
-                    onClientTap: (c) => _openClientDetail(context, c),
-                  ),
                 ],
               ),
             );
@@ -292,21 +294,23 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _openCreateClient(BuildContext context) async {
+    // Requires CreateClientPage to return client via: Navigator.pop(context, client);
     final created = await Navigator.push<Client>(
       context,
       MaterialPageRoute(
         builder: (_) => CreateClientPage(
-          // Upsert immediately (so even if the route doesn't return a Client,
-          // the list still updates).
-          onCreate: (c) => _upsertClient(c),
+          onCreate: (_) {}, // rely on returned Client (avoids double-add)
         ),
       ),
     );
 
-    // Also upsert from returned value (prevents “no clients” if onCreate
-    // wasn’t called for some reason).
     if (created != null) {
-      _upsertClient(created);
+      final exists = clientListVM.clients.any((c) => c.clientId == created.clientId);
+      if (!exists) {
+        await clientListVM.addClient(created);
+      } else {
+        await clientListVM.updateClient(created);
+      }
     }
   }
 
@@ -351,16 +355,28 @@ class _AppointmentsForDay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final items = clients.where((c) {
-      if (c.nextAppointment <= 0) return false;
-      final dt = DateTime.fromMillisecondsSinceEpoch(c.nextAppointment * 1000);
-      return dt.year == selectedDay.year &&
-          dt.month == selectedDay.month &&
-          dt.day == selectedDay.day;
-    }).toList()
+    final items = clients
+        .where((c) {
+          if (c.nextAppointment <= 0) return false;
+          final dt = DateTime.fromMillisecondsSinceEpoch(c.nextAppointment * 1000);
+          return dt.year == selectedDay.year &&
+              dt.month == selectedDay.month &&
+              dt.day == selectedDay.day;
+        })
+        .toList()
       ..sort((a, b) => a.nextAppointment.compareTo(b.nextAppointment));
 
-    if (items.isEmpty) return const SizedBox.shrink();
+    if (items.isEmpty) {
+      return Card(
+        elevation: 0,
+        color: Colors.grey.shade50,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        child: const Padding(
+          padding: EdgeInsets.all(12),
+          child: Text('No appointments for the selected day'),
+        ),
+      );
+    }
 
     return Card(
       elevation: 0,
@@ -380,7 +396,6 @@ class _AppointmentsForDay extends StatelessWidget {
               final dt = DateTime.fromMillisecondsSinceEpoch(c.nextAppointment * 1000);
               final hh = dt.hour.toString().padLeft(2, '0');
               final mm = dt.minute.toString().padLeft(2, '0');
-
               return ListTile(
                 contentPadding: EdgeInsets.zero,
                 title: Text(c.name),
