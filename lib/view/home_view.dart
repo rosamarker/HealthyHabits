@@ -13,10 +13,11 @@ import '../view_model/client_list_view_model.dart';
 import '../view_model/movesense_view_model.dart';
 import '../view_model/recording_view_model.dart';
 
-import '../services/file_client_repository.dart';
-import '../services/file_recording_repository.dart';
+import '../services/client_repository.dart';
 import '../services/recording_repository.dart';
 import '../services/recording_service.dart';
+import '../services/sembast_client_repository.dart';
+import '../services/sembast_recording_repository.dart';
 
 import '../widgets/client_card_widget.dart';
 import '../widgets/movesense_block_widget.dart';
@@ -29,15 +30,21 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  late final ClientListViewModel clientListVM;
   late final MovesenseViewModel movesenseVM;
 
+  // Persistence-backed repositories
+  late final ClientRepository clientRepo;
   late final RecordingRepository recordingRepo;
+
+  // ViewModels
+  late final ClientListViewModel clientListVM;
+
+  // Recording stack
   late final RecordingService recordingService;
   late final RecordingViewModel recordingVM;
 
-  // Old-calendar behavior: month-only
-  CalendarFormat _calendarFormat = CalendarFormat.month;
+  // Calendar state
+  final CalendarFormat _calendarFormat = CalendarFormat.month; 
   DateTime _focusedDay = DateTime.now();
   DateTime _selectedDay = DateTime.now();
 
@@ -45,16 +52,21 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
 
-    // FIX: ClientListViewModel now requires repo
-    clientListVM = ClientListViewModel(repo: FileClientRepository());
     movesenseVM = MovesenseViewModel();
 
-    recordingRepo = FileRecordingRepository();
+    // Use Sembast-backed persistence (survives app restart)
+    clientRepo = SembastClientRepository();
+    recordingRepo = SembastRecordingRepository();
+
+    clientListVM = ClientListViewModel(repo: clientRepo);
+
     recordingService = RecordingService(repo: recordingRepo, movesenseVM: movesenseVM);
     recordingVM = RecordingViewModel(service: recordingService);
 
     // Load persisted clients
-    Future.microtask(() => clientListVM.load());
+    Future.microtask(() async {
+      await clientListVM.load();
+    });
   }
 
   @override
@@ -66,6 +78,8 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
+    final today = DateTime.now();
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Healthy Habits'),
@@ -87,11 +101,6 @@ class _HomePageState extends State<HomePage> {
           animation: clientListVM,
           builder: (_, __) {
             final clients = clientListVM.clients;
-
-            // Optional: show a simple loader until first load completes
-            if (!clientListVM.isLoaded) {
-              return const Center(child: CircularProgressIndicator());
-            }
 
             return SingleChildScrollView(
               padding: const EdgeInsets.all(16),
@@ -120,16 +129,11 @@ class _HomePageState extends State<HomePage> {
                         firstDay: DateTime.utc(2020, 1, 1),
                         lastDay: DateTime.utc(2035, 12, 31),
                         focusedDay: _focusedDay,
-
-                        // Month-only
                         calendarFormat: _calendarFormat,
                         availableCalendarFormats: const {
                           CalendarFormat.month: 'Month',
                         },
-                        onFormatChanged: (_) {},
-
                         startingDayOfWeek: StartingDayOfWeek.monday,
-
                         selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
                         onDaySelected: (selectedDay, focusedDay) {
                           setState(() {
@@ -140,37 +144,46 @@ class _HomePageState extends State<HomePage> {
                         onPageChanged: (focusedDay) {
                           _focusedDay = focusedDay;
                         },
-
                         headerStyle: const HeaderStyle(
                           titleCentered: true,
-                          formatButtonVisible: false,
+                          formatButtonVisible: false, // month-only
                         ),
-
-                        // “Old calendar”: selected = green, today = faded green
                         calendarStyle: CalendarStyle(
+                          // Selected day = green
                           selectedDecoration: const BoxDecoration(
                             color: Colors.green,
                             shape: BoxShape.circle,
                           ),
-                          selectedTextStyle: const TextStyle(color: Colors.white),
+                          // Today = faded green (unless selected)
                           todayDecoration: BoxDecoration(
                             color: Colors.green.withOpacity(0.25),
                             shape: BoxShape.circle,
                           ),
-                          todayTextStyle: const TextStyle(color: Colors.black),
-                          markersAlignment: Alignment.bottomCenter,
+                          todayTextStyle: const TextStyle(
+                            color: Colors.black,
+                            fontWeight: FontWeight.w700,
+                          ),
+                          selectedTextStyle: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                          ),
+                          markerDecoration: const BoxDecoration(
+                            color: Colors.transparent,
+                            shape: BoxShape.circle,
+                          ),
                         ),
 
-                        // Mark days with appointments
+                        // Load events (clients) for markers
                         eventLoader: (day) {
-                          final d0 = DateTime(day.year, day.month, day.day);
+                          final ds = DateTime(day.year, day.month, day.day);
                           return clients.where((c) {
                             if (c.nextAppointment <= 0) return false;
                             final dt = DateTime.fromMillisecondsSinceEpoch(c.nextAppointment * 1000);
-                            return dt.year == d0.year && dt.month == d0.month && dt.day == d0.day;
+                            return dt.year == ds.year && dt.month == ds.month && dt.day == ds.day;
                           }).toList();
                         },
 
+                        // Colored dots per client status (up to 3)
                         calendarBuilders: CalendarBuilders(
                           markerBuilder: (context, day, events) {
                             if (events.isEmpty) return null;
@@ -198,6 +211,27 @@ class _HomePageState extends State<HomePage> {
                               ),
                             );
                           },
+                          todayBuilder: (context, day, focusedDay) {
+                            // Ensure today looks “faded green” even with default builder
+                            final isSelected = isSameDay(day, _selectedDay);
+                            final bg = isSelected ? Colors.green : Colors.green.withOpacity(0.25);
+
+                            return Container(
+                              margin: const EdgeInsets.all(6),
+                              decoration: BoxDecoration(
+                                color: bg,
+                                shape: BoxShape.circle,
+                              ),
+                              alignment: Alignment.center,
+                              child: Text(
+                                '${day.day}',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  color: isSelected ? Colors.white : Colors.black,
+                                ),
+                              ),
+                            );
+                          },
                         ),
                       ),
                     ),
@@ -205,7 +239,7 @@ class _HomePageState extends State<HomePage> {
 
                   const SizedBox(height: 12),
 
-                  // Clients listed beneath calendar (appointments on selected day)
+                  // Appointments for selected day (keeps the “calendar drives list” behavior)
                   _AppointmentsForDay(
                     selectedDay: _selectedDay,
                     clients: clients,
@@ -229,7 +263,12 @@ class _HomePageState extends State<HomePage> {
                     ],
                   ),
 
-                  if (clients.isEmpty)
+                  if (!clientListVM.isLoaded)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 12),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  else if (clients.isEmpty)
                     Card(
                       elevation: 0,
                       color: Colors.grey.shade100,
@@ -271,6 +310,12 @@ class _HomePageState extends State<HomePage> {
                         );
                       },
                     ),
+
+                  const SizedBox(height: 12),
+
+                  // Tiny “today hint” (optional): helps confirm the “faded green” is today
+                  if (isSameDay(_focusedDay, today))
+                    const SizedBox.shrink(),
                 ],
               ),
             );
@@ -294,22 +339,22 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _openCreateClient(BuildContext context) async {
-    // Requires CreateClientPage to return client via: Navigator.pop(context, client);
     final created = await Navigator.push<Client>(
       context,
       MaterialPageRoute(
         builder: (_) => CreateClientPage(
-          onCreate: (_) {}, // rely on returned Client (avoids double-add)
+          onCreate: (_) {}, // rely on returned Client
         ),
       ),
     );
 
     if (created != null) {
+      // Upsert into VM + persistence
       final exists = clientListVM.clients.any((c) => c.clientId == created.clientId);
-      if (!exists) {
-        await clientListVM.addClient(created);
-      } else {
+      if (exists) {
         await clientListVM.updateClient(created);
+      } else {
+        await clientListVM.addClient(created);
       }
     }
   }
@@ -355,28 +400,16 @@ class _AppointmentsForDay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final items = clients
-        .where((c) {
-          if (c.nextAppointment <= 0) return false;
-          final dt = DateTime.fromMillisecondsSinceEpoch(c.nextAppointment * 1000);
-          return dt.year == selectedDay.year &&
-              dt.month == selectedDay.month &&
-              dt.day == selectedDay.day;
-        })
-        .toList()
+    final items = clients.where((c) {
+      if (c.nextAppointment <= 0) return false;
+      final dt = DateTime.fromMillisecondsSinceEpoch(c.nextAppointment * 1000);
+      return dt.year == selectedDay.year &&
+          dt.month == selectedDay.month &&
+          dt.day == selectedDay.day;
+    }).toList()
       ..sort((a, b) => a.nextAppointment.compareTo(b.nextAppointment));
 
-    if (items.isEmpty) {
-      return Card(
-        elevation: 0,
-        color: Colors.grey.shade50,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        child: const Padding(
-          padding: EdgeInsets.all(12),
-          child: Text('No appointments for the selected day'),
-        ),
-      );
-    }
+    if (items.isEmpty) return const SizedBox.shrink();
 
     return Card(
       elevation: 0,
