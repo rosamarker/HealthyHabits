@@ -5,7 +5,7 @@ import '../model/clients.dart';
 import '../view_model/create_client_view_model.dart';
 
 class CreateClientPage extends StatefulWidget {
-  // Kept for compatibility, but callers should rely on the returned Client.
+  // Keep for compatibility, but callers should rely on the returned Client.
   final void Function(Client created) onCreate;
   final Client? initialClient;
 
@@ -44,13 +44,13 @@ class _CreateClientPageState extends State<CreateClientPage> {
       lastDate: DateTime(now.year + 5),
       initialDate: initial,
     );
-    if (date == null) return;
+    if (!mounted || date == null) return;
 
     final time = await showTimePicker(
       context: context,
       initialTime: TimeOfDay.fromDateTime(initial),
     );
-    if (time == null) return;
+    if (!mounted || time == null) return;
 
     viewModel.setNextAppointment(
       DateTime(date.year, date.month, date.day, time.hour, time.minute),
@@ -58,33 +58,39 @@ class _CreateClientPageState extends State<CreateClientPage> {
   }
 
   Future<void> _addExerciseDialog() async {
-    final formKey = GlobalKey<FormState>();
-
+    // NOTE:
+    // Do NOT manually dispose these controllers. Disposing them immediately after
+    // Navigator.pop(...) can intermittently trigger the Flutter assertion:
+    // '_dependents.isEmpty' is not true (seen on iOS).
     final nameCtrl = TextEditingController();
     final descCtrl = TextEditingController();
 
+    // Countable fields
     final setsCtrl = TextEditingController(text: '3');
     final repsCtrl = TextEditingController(text: '10');
 
+    // Time-based fields (MINUTES)
+    final minutesCtrl = TextEditingController(text: '1');
+
     bool isCountable = true;
 
-    // Robust minutes picker (no parsing issues)
-    int minutes = 1;
-
-    String? validatePositiveInt(String v) {
+    String? validatePositiveInt(String v, {bool allowZero = true}) {
       final n = int.tryParse(v.trim());
-      if (n == null || n <= 0) return 'Must be > 0';
+      if (n == null) return 'Enter a valid number';
+      if (!allowZero && n <= 0) return 'Must be > 0';
+      if (allowZero && n < 0) return 'Must be ≥ 0';
       return null;
     }
 
-    final exercise = await showDialog<Exercise>(
+    final formKey = GlobalKey<FormState>();
+
+    final added = await showDialog<Exercise>(
       context: context,
-      barrierDismissible: true,
-      builder: (dialogCtx) {
+      builder: (ctx) {
         return AlertDialog(
           title: const Text('Add exercise'),
           content: StatefulBuilder(
-            builder: (ctx, setState2) {
+            builder: (ctx2, setState2) {
               return Form(
                 key: formKey,
                 child: SingleChildScrollView(
@@ -107,65 +113,35 @@ class _CreateClientPageState extends State<CreateClientPage> {
                       SwitchListTile(
                         value: isCountable,
                         onChanged: (v) => setState2(() => isCountable = v),
-                        title: Text(isCountable ? 'Reps/sets' : 'Timer (minutes)'),
+                        title: Text(isCountable ? 'Reps/sets' : 'Stopwatch (minutes)'),
                       ),
                       const SizedBox(height: 8),
-
                       if (isCountable) ...[
                         TextFormField(
                           controller: setsCtrl,
                           decoration: const InputDecoration(labelText: 'Sets'),
                           keyboardType: TextInputType.number,
-                          validator: (v) => validatePositiveInt(v ?? ''),
+                          validator: (v) => validatePositiveInt(v ?? '', allowZero: false),
                         ),
                         const SizedBox(height: 8),
                         TextFormField(
                           controller: repsCtrl,
                           decoration: const InputDecoration(labelText: 'Reps'),
                           keyboardType: TextInputType.number,
-                          validator: (v) => validatePositiveInt(v ?? ''),
+                          validator: (v) => validatePositiveInt(v ?? '', allowZero: false),
                         ),
                       ] else ...[
-                        // Minutes stepper (no keyboard parsing issues)
-                        Row(
-                          children: [
-                            const Expanded(
-                              child: Text(
-                                'Minutes',
-                                style: TextStyle(fontWeight: FontWeight.w600),
-                              ),
-                            ),
-                            IconButton(
-                              onPressed: minutes <= 1
-                                  ? null
-                                  : () => setState2(() => minutes -= 1),
-                              icon: const Icon(Icons.remove_circle_outline),
-                            ),
-                            SizedBox(
-                              width: 56,
-                              child: Center(
-                                child: Text(
-                                  '$minutes',
-                                  style: const TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            IconButton(
-                              onPressed: minutes >= 180
-                                  ? null
-                                  : () => setState2(() => minutes += 1),
-                              icon: const Icon(Icons.add_circle_outline),
-                            ),
-                          ],
+                        TextFormField(
+                          controller: minutesCtrl,
+                          decoration: const InputDecoration(labelText: 'Minutes'),
+                          keyboardType: TextInputType.number,
+                          validator: (v) => validatePositiveInt(v ?? '', allowZero: false),
                         ),
                         const SizedBox(height: 6),
                         const Align(
                           alignment: Alignment.centerLeft,
                           child: Text(
-                            'This will run as a countdown timer on the client page',
+                            'This will create a countdown timer for the client',
                             style: TextStyle(fontSize: 12, color: Colors.black54),
                           ),
                         ),
@@ -178,26 +154,27 @@ class _CreateClientPageState extends State<CreateClientPage> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(dialogCtx).pop(null),
+              onPressed: () => Navigator.pop(ctx, null),
               child: const Text('Cancel'),
             ),
             ElevatedButton(
               onPressed: () {
                 if (!(formKey.currentState?.validate() ?? false)) return;
 
-                final secondsTotal = isCountable ? 0 : minutes * 60;
+                final minutes = int.tryParse(minutesCtrl.text.trim()) ?? 0;
 
-                final ex = Exercise(
+                final exercise = Exercise(
                   exerciseId: DateTime.now().microsecondsSinceEpoch.toString(),
                   name: nameCtrl.text.trim(),
                   description: descCtrl.text.trim(),
                   sets: isCountable ? (int.tryParse(setsCtrl.text.trim()) ?? 0) : 0,
                   reps: isCountable ? (int.tryParse(repsCtrl.text.trim()) ?? 0) : 0,
-                  time: secondsTotal, // stored as seconds
+                  // Store as seconds in the model (compatible with your existing timer code)
+                  time: isCountable ? 0 : (minutes * 60),
                   isCountable: isCountable,
                 );
 
-                Navigator.of(dialogCtx).pop(ex);
+                Navigator.pop(ctx, exercise);
               },
               child: const Text('Add'),
             ),
@@ -208,17 +185,18 @@ class _CreateClientPageState extends State<CreateClientPage> {
 
     if (!mounted) return;
 
-    if (exercise != null) {
-      viewModel.addExercise(exercise);
+    if (added != null) {
+      viewModel.addExercise(added);
     }
-
-    // Do NOT dispose controllers immediately; avoids iOS assertion in some keyboard/dialog transitions.
   }
 
   void _save() {
     final client = viewModel.buildClient(existingClientId: widget.initialClient?.clientId);
 
+    // Keep old callback flow (in case any screen still relies on it)
     widget.onCreate(client);
+
+    // Critical: also RETURN the client so caller can reliably add/update.
     Navigator.pop(context, client);
   }
 
@@ -259,7 +237,6 @@ class _CreateClientPageState extends State<CreateClientPage> {
                   keyboardType: TextInputType.number,
                 ),
                 const SizedBox(height: 12),
-
                 DropdownButtonFormField<String>(
                   initialValue: viewModel.gender,
                   decoration: const InputDecoration(labelText: 'Gender'),
@@ -272,9 +249,7 @@ class _CreateClientPageState extends State<CreateClientPage> {
                     if (v != null) viewModel.setGender(v);
                   },
                 ),
-
                 const SizedBox(height: 12),
-
                 DropdownButtonFormField<int>(
                   initialValue: viewModel.active,
                   decoration: const InputDecoration(labelText: 'Status'),
@@ -287,17 +262,13 @@ class _CreateClientPageState extends State<CreateClientPage> {
                     if (v != null) viewModel.setActive(v);
                   },
                 ),
-
                 const SizedBox(height: 12),
-
                 TextField(
                   controller: viewModel.motivationController,
                   decoration: const InputDecoration(labelText: 'Motivation'),
                   maxLines: 3,
                 ),
-
                 const SizedBox(height: 16),
-
                 Row(
                   children: [
                     Expanded(child: Text('Next appointment: $apptText')),
@@ -307,9 +278,7 @@ class _CreateClientPageState extends State<CreateClientPage> {
                     ),
                   ],
                 ),
-
                 const SizedBox(height: 16),
-
                 const Text(
                   'Movesense link',
                   style: TextStyle(fontWeight: FontWeight.bold),
@@ -323,18 +292,18 @@ class _CreateClientPageState extends State<CreateClientPage> {
                       child: Text(
                         (viewModel.movesenseDeviceName ?? viewModel.movesenseDeviceId) ??
                             'No device linked',
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                     TextButton(
-                      onPressed: () =>
-                          viewModel.setMovesenseLink(deviceId: null, deviceName: null),
+                      onPressed: () {
+                        viewModel.setMovesenseLink(deviceId: null, deviceName: null);
+                      },
                       child: const Text('Clear'),
                     ),
                   ],
                 ),
-
                 const SizedBox(height: 16),
-
                 Row(
                   children: [
                     const Expanded(
@@ -350,9 +319,7 @@ class _CreateClientPageState extends State<CreateClientPage> {
                     ),
                   ],
                 ),
-
                 const SizedBox(height: 8),
-
                 if (viewModel.exercises.isEmpty)
                   const Text('No exercises yet')
                 else
@@ -373,9 +340,7 @@ class _CreateClientPageState extends State<CreateClientPage> {
                       );
                     },
                   ),
-
                 const SizedBox(height: 24),
-
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(

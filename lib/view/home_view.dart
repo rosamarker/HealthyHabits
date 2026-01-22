@@ -1,4 +1,6 @@
 // lib/view/home_view.dart
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
 
@@ -13,11 +15,9 @@ import '../view_model/client_list_view_model.dart';
 import '../view_model/movesense_view_model.dart';
 import '../view_model/recording_view_model.dart';
 
-import '../services/client_repository.dart';
-import '../services/recording_repository.dart';
-import '../services/recording_service.dart';
 import '../services/sembast_client_repository.dart';
 import '../services/sembast_recording_repository.dart';
+import '../services/recording_service.dart';
 
 import '../widgets/client_card_widget.dart';
 import '../widgets/movesense_block_widget.dart';
@@ -30,21 +30,14 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
+  late final ClientListViewModel clientListVM;
   late final MovesenseViewModel movesenseVM;
 
-  // Persistence-backed repositories
-  late final ClientRepository clientRepo;
-  late final RecordingRepository recordingRepo;
-
-  // ViewModels
-  late final ClientListViewModel clientListVM;
-
-  // Recording stack
   late final RecordingService recordingService;
   late final RecordingViewModel recordingVM;
 
-  // Calendar state
-  final CalendarFormat _calendarFormat = CalendarFormat.month; 
+  final CalendarFormat _calendarFormat = CalendarFormat.month;
+
   DateTime _focusedDay = DateTime.now();
   DateTime _selectedDay = DateTime.now();
 
@@ -52,21 +45,18 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
 
+    clientListVM = ClientListViewModel(repo: SembastClientRepository());
     movesenseVM = MovesenseViewModel();
 
-    // Use Sembast-backed persistence (survives app restart)
-    clientRepo = SembastClientRepository();
-    recordingRepo = SembastRecordingRepository();
-
-    clientListVM = ClientListViewModel(repo: clientRepo);
-
-    recordingService = RecordingService(repo: recordingRepo, movesenseVM: movesenseVM);
+    recordingService = RecordingService(
+      repo: SembastRecordingRepository(),
+      movesenseVM: movesenseVM,
+    );
     recordingVM = RecordingViewModel(service: recordingService);
 
-    // Load persisted clients
-    Future.microtask(() async {
-      await clientListVM.load();
-    });
+    // Load persisted clients (async)
+    // ignore: discarded_futures
+    clientListVM.load();
   }
 
   @override
@@ -78,7 +68,7 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    final today = DateTime.now();
+    const Color green = Colors.green;
 
     return Scaffold(
       appBar: AppBar(
@@ -125,15 +115,23 @@ class _HomePageState extends State<HomePage> {
                     ),
                     child: Padding(
                       padding: const EdgeInsets.all(12),
-                      child: TableCalendar(
+                      child: TableCalendar<Client>(
                         firstDay: DateTime.utc(2020, 1, 1),
                         lastDay: DateTime.utc(2035, 12, 31),
                         focusedDay: _focusedDay,
+
+                        // Month view
                         calendarFormat: _calendarFormat,
                         availableCalendarFormats: const {
                           CalendarFormat.month: 'Month',
                         },
+
                         startingDayOfWeek: StartingDayOfWeek.monday,
+                        headerStyle: const HeaderStyle(
+                          titleCentered: true,
+                          formatButtonVisible: false,
+                        ),
+
                         selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
                         onDaySelected: (selectedDay, focusedDay) {
                           setState(() {
@@ -141,55 +139,53 @@ class _HomePageState extends State<HomePage> {
                             _focusedDay = focusedDay;
                           });
                         },
+
+                        // Use setState so the widget doesn't drift/revert
                         onPageChanged: (focusedDay) {
-                          _focusedDay = focusedDay;
+                          setState(() => _focusedDay = focusedDay);
                         },
-                        headerStyle: const HeaderStyle(
-                          titleCentered: true,
-                          formatButtonVisible: false, // month-only
-                        ),
+
+                        // Appointment markers
+                        eventLoader: (day) {
+                          return clients.where((c) {
+                            if (c.nextAppointment <= 0) return false;
+                            final dt = DateTime.fromMillisecondsSinceEpoch(
+                              c.nextAppointment * 1000,
+                            );
+                            return dt.year == day.year &&
+                                dt.month == day.month &&
+                                dt.day == day.day;
+                          }).toList();
+                        },
+
                         calendarStyle: CalendarStyle(
-                          // Selected day = green
+                          // Today: faded green
+                          todayDecoration: BoxDecoration(
+                            color: green.withValues(alpha: 0.25),
+                            shape: BoxShape.circle,
+                          ),
+                          // Selected: solid green
                           selectedDecoration: const BoxDecoration(
                             color: Colors.green,
                             shape: BoxShape.circle,
-                          ),
-                          // Today = faded green (unless selected)
-                          todayDecoration: BoxDecoration(
-                            color: Colors.green.withOpacity(0.25),
-                            shape: BoxShape.circle,
-                          ),
-                          todayTextStyle: const TextStyle(
-                            color: Colors.black,
-                            fontWeight: FontWeight.w700,
                           ),
                           selectedTextStyle: const TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.w700,
                           ),
-                          markerDecoration: const BoxDecoration(
-                            color: Colors.transparent,
-                            shape: BoxShape.circle,
+                          todayTextStyle: const TextStyle(
+                            color: Colors.black,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
 
-                        // Load events (clients) for markers
-                        eventLoader: (day) {
-                          final ds = DateTime(day.year, day.month, day.day);
-                          return clients.where((c) {
-                            if (c.nextAppointment <= 0) return false;
-                            final dt = DateTime.fromMillisecondsSinceEpoch(c.nextAppointment * 1000);
-                            return dt.year == ds.year && dt.month == ds.month && dt.day == ds.day;
-                          }).toList();
-                        },
-
-                        // Colored dots per client status (up to 3)
                         calendarBuilders: CalendarBuilders(
                           markerBuilder: (context, day, events) {
                             if (events.isEmpty) return null;
-                            final clientEvents = events.cast<Client>();
 
-                            final dots = clientEvents.take(3).map((c) {
+                            // Up to 3 dots, colored by client status
+                            final dots = events.take(3).map((e) {
+                              final c = e;
                               return Container(
                                 width: 6,
                                 height: 6,
@@ -211,27 +207,6 @@ class _HomePageState extends State<HomePage> {
                               ),
                             );
                           },
-                          todayBuilder: (context, day, focusedDay) {
-                            // Ensure today looks “faded green” even with default builder
-                            final isSelected = isSameDay(day, _selectedDay);
-                            final bg = isSelected ? Colors.green : Colors.green.withOpacity(0.25);
-
-                            return Container(
-                              margin: const EdgeInsets.all(6),
-                              decoration: BoxDecoration(
-                                color: bg,
-                                shape: BoxShape.circle,
-                              ),
-                              alignment: Alignment.center,
-                              child: Text(
-                                '${day.day}',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  color: isSelected ? Colors.white : Colors.black,
-                                ),
-                              ),
-                            );
-                          },
                         ),
                       ),
                     ),
@@ -239,7 +214,6 @@ class _HomePageState extends State<HomePage> {
 
                   const SizedBox(height: 12),
 
-                  // Appointments for selected day (keeps the “calendar drives list” behavior)
                   _AppointmentsForDay(
                     selectedDay: _selectedDay,
                     clients: clients,
@@ -253,7 +227,10 @@ class _HomePageState extends State<HomePage> {
                       Expanded(
                         child: Text(
                           'Clients (${clients.length})',
-                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
                       ),
                       TextButton(
@@ -282,7 +259,10 @@ class _HomePageState extends State<HomePage> {
                           children: [
                             const Text(
                               'No clients yet',
-                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                             const SizedBox(height: 8),
                             const Text('Tap “Add client” to create your first client'),
@@ -310,12 +290,6 @@ class _HomePageState extends State<HomePage> {
                         );
                       },
                     ),
-
-                  const SizedBox(height: 12),
-
-                  // Tiny “today hint” (optional): helps confirm the “faded green” is today
-                  if (isSameDay(_focusedDay, today))
-                    const SizedBox.shrink(),
                 ],
               ),
             );
@@ -348,13 +322,14 @@ class _HomePageState extends State<HomePage> {
       ),
     );
 
+    if (!mounted) return;
+
     if (created != null) {
-      // Upsert into VM + persistence
       final exists = clientListVM.clients.any((c) => c.clientId == created.clientId);
-      if (exists) {
-        await clientListVM.updateClient(created);
-      } else {
+      if (!exists) {
         await clientListVM.addClient(created);
+      } else {
+        await clientListVM.updateClient(created);
       }
     }
   }

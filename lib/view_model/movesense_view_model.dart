@@ -31,13 +31,16 @@ class MovesenseViewModel extends ChangeNotifier {
   int? _batteryPercent;
   int? _heartRate;
 
+  int? _lastHrUpdateAtMs;
+
   // --- Public getters ---
   bool get isScanning => _isScanning;
   bool get isStreaming => _isStreaming;
 
   MovesenseConnectionState get connectionState => _connState;
-  Stream<MovesenseConnectionState> get connectionStateStream =>
-      _connStateCtrl.stream;
+
+  /// Used by RecordingService to auto-stop when disconnected.
+  Stream<MovesenseConnectionState> get connectionStateStream => _connStateCtrl.stream;
 
   bool get isConnecting => _connState == MovesenseConnectionState.connecting;
   bool get isConnected => _connState == MovesenseConnectionState.connected;
@@ -50,7 +53,10 @@ class MovesenseViewModel extends ChangeNotifier {
   int? get batteryPercent => _batteryPercent;
   int? get heartRate => _heartRate;
 
-  // Standard BLE UUIDs
+  /// Helpful for debugging “stuck HR”.
+  int? get lastHrUpdateAtMs => _lastHrUpdateAtMs;
+
+  // Standard BLE UUIDs (Movesense *may* expose standard HR service when in HR mode)
   static final Uuid _hrService =
       Uuid.parse('0000180d-0000-1000-8000-00805f9b34fb');
   static final Uuid _hrChar =
@@ -61,11 +67,12 @@ class MovesenseViewModel extends ChangeNotifier {
   static final Uuid _batteryChar =
       Uuid.parse('00002a19-0000-1000-8000-00805f9b34fb');
 
-  // Filter: only show devices whose *name* looks like Movesense.
+  // Filter: only show devices whose name looks like Movesense.
   bool _looksLikeMovesense(String name) {
     final n = name.trim().toLowerCase();
     if (n.isEmpty) return false;
 
+    // Common Movesense patterns
     if (n.startsWith('movesense')) return true;
     if (n.startsWith('mds')) return true;
     if (n.contains('movesense')) return true;
@@ -81,16 +88,17 @@ class MovesenseViewModel extends ChangeNotifier {
   }
 
   Future<bool> _ensurePermissions() async {
+    // iOS: permission_handler BLE permissions are typically not required at runtime.
     if (!Platform.isAndroid) return true;
 
-    // Android 12+ typically requires bluetoothScan/bluetoothConnect.
-    // Some devices still require location for BLE scan visibility.
+    // Android 12+ requires these; older Android often needs location for scan visibility.
     final scan = await Permission.bluetoothScan.request();
     final connect = await Permission.bluetoothConnect.request();
-
-    // Fallback (older Android / OEM quirks)
     final location = await Permission.locationWhenInUse.request();
 
+    // Accept either:
+    // - scan+connect granted (Android 12+)
+    // - location granted (older Android / OEM quirks)
     final ok = (scan.isGranted && connect.isGranted) || location.isGranted;
     return ok;
   }
@@ -105,12 +113,14 @@ class MovesenseViewModel extends ChangeNotifier {
     _isScanning = true;
     notifyListeners();
 
-    // Scan broadly but filter by name to avoid Mac/iPhone/etc.
+    // Scan broadly but filter hard by name to avoid Apple devices.
     _scanSub = _ble
         .scanForDevices(withServices: const [], scanMode: ScanMode.lowLatency)
         .listen(
       (d) {
         final name = d.name.trim();
+
+        // HARD FILTER (name-only)
         if (!_looksLikeMovesense(name)) return;
 
         final idx = _found.indexWhere((x) => x.id == d.id);
@@ -119,6 +129,10 @@ class MovesenseViewModel extends ChangeNotifier {
         } else {
           _found.add(d);
         }
+
+        // Optional: sort stable by name (keeps list nice)
+        _found.sort((a, b) => (a.name).compareTo(b.name));
+
         notifyListeners();
       },
       onError: (_) {
@@ -145,6 +159,10 @@ class MovesenseViewModel extends ChangeNotifier {
     _deviceId = device.id;
     _deviceName = device.name.trim().isEmpty ? null : device.name.trim();
 
+    _batteryPercent = null;
+    _heartRate = null;
+    _lastHrUpdateAtMs = null;
+
     _setConnState(MovesenseConnectionState.connecting);
 
     _connSub = _ble
@@ -158,10 +176,12 @@ class MovesenseViewModel extends ChangeNotifier {
           _setConnState(MovesenseConnectionState.connected);
           await _readBatteryOnce();
           notifyListeners();
+          return;
         }
 
         if (update.connectionState == DeviceConnectionState.disconnected) {
           await _cleanupOnDisconnect();
+          return;
         }
       },
       onError: (_) async {
@@ -182,6 +202,7 @@ class MovesenseViewModel extends ChangeNotifier {
 
     _isStreaming = false;
     _heartRate = null;
+    _lastHrUpdateAtMs = null;
 
     await _connSub?.cancel();
     _connSub = null;
@@ -218,6 +239,10 @@ class MovesenseViewModel extends ChangeNotifier {
 
     await stopHeartRate();
 
+    // Reset before starting so the UI won’t “stick” on an old number.
+    _heartRate = null;
+    _lastHrUpdateAtMs = null;
+
     final qc = QualifiedCharacteristic(
       deviceId: _deviceId!,
       serviceId: _hrService,
@@ -230,10 +255,11 @@ class MovesenseViewModel extends ChangeNotifier {
     _hrSub = _ble.subscribeToCharacteristic(qc).listen(
       (data) {
         final hr = _parseHeartRate(data);
-        if (hr != null) {
-          _heartRate = hr;
-          notifyListeners();
-        }
+        if (hr == null) return;
+
+        _heartRate = hr;
+        _lastHrUpdateAtMs = DateTime.now().millisecondsSinceEpoch;
+        notifyListeners();
       },
       onError: (_) {
         _isStreaming = false;
@@ -253,6 +279,8 @@ class MovesenseViewModel extends ChangeNotifier {
   }
 
   int? _parseHeartRate(List<int> data) {
+    // Heart Rate Measurement characteristic format:
+    // byte0 = flags; HR value is uint8 at byte1 OR uint16 at byte1..2 depending on flags.
     if (data.length < 2) return null;
 
     final flags = data[0];

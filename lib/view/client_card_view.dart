@@ -2,7 +2,6 @@
 import 'package:flutter/material.dart';
 import 'package:stop_watch_timer/stop_watch_timer.dart';
 
-import '../model/clients.dart';
 import '../view_model/client_card_view_model.dart';
 import '../view_model/client_list_view_model.dart';
 import '../view_model/movesense_view_model.dart';

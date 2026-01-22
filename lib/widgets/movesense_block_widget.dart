@@ -1,6 +1,5 @@
 // lib/widgets/movesense_block_widget.dart
 import 'package:flutter/material.dart';
-import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 
 import '../model/clients.dart';
 import '../view_model/movesense_view_model.dart';
