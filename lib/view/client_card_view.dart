@@ -8,7 +8,6 @@ import 'package:path_provider/path_provider.dart';
 import 'package:stop_watch_timer/stop_watch_timer.dart';
 
 import '../model/clients.dart';
-import '../model/recording_models.dart';
 import '../services/recording_repository.dart';
 import '../view_model/client_card_view_model.dart';
 import '../view_model/client_list_view_model.dart';

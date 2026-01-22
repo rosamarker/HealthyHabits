@@ -1,6 +1,4 @@
 // lib/view/home_view.dart
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
 
@@ -19,7 +17,6 @@ import '../services/sembast_client_repository.dart';
 import '../services/sembast_recording_repository.dart';
 import '../services/recording_service.dart';
 
-import '../widgets/client_card_widget.dart';
 import '../widgets/movesense_block_widget.dart';
 
 class HomePage extends StatefulWidget {
@@ -37,7 +34,6 @@ class _HomePageState extends State<HomePage> {
   late final RecordingViewModel recordingVM;
 
   final CalendarFormat _calendarFormat = CalendarFormat.month;
-
   DateTime _focusedDay = DateTime.now();
   DateTime _selectedDay = DateTime.now();
 
@@ -54,8 +50,6 @@ class _HomePageState extends State<HomePage> {
     );
     recordingVM = RecordingViewModel(service: recordingService);
 
-    // Load persisted clients (async)
-    // ignore: discarded_futures
     clientListVM.load();
   }
 
@@ -68,7 +62,7 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    const Color green = Colors.green;
+    final green = Colors.green;
 
     return Scaffold(
       appBar: AppBar(
@@ -101,8 +95,8 @@ class _HomePageState extends State<HomePage> {
                     vm: movesenseVM,
                     recordingVM: recordingVM,
                     clients: clients,
-                    onLinkToClient: (Client updated) async {
-                      await clientListVM.updateClient(updated);
+                    onLinkToClient: (Client updated) {
+                      clientListVM.updateClient(updated);
                     },
                   ),
 
@@ -120,7 +114,7 @@ class _HomePageState extends State<HomePage> {
                         lastDay: DateTime.utc(2035, 12, 31),
                         focusedDay: _focusedDay,
 
-                        // Month view
+                        // Month only
                         calendarFormat: _calendarFormat,
                         availableCalendarFormats: const {
                           CalendarFormat.month: 'Month',
@@ -139,11 +133,7 @@ class _HomePageState extends State<HomePage> {
                             _focusedDay = focusedDay;
                           });
                         },
-
-                        // Use setState so the widget doesn't drift/revert
-                        onPageChanged: (focusedDay) {
-                          setState(() => _focusedDay = focusedDay);
-                        },
+                        onPageChanged: (focusedDay) => _focusedDay = focusedDay,
 
                         // Appointment markers
                         eventLoader: (day) {
@@ -159,12 +149,10 @@ class _HomePageState extends State<HomePage> {
                         },
 
                         calendarStyle: CalendarStyle(
-                          // Today: faded green
                           todayDecoration: BoxDecoration(
-                            color: green.withValues(alpha: 0.25),
+                            color: green.withAlpha(64), // faded green
                             shape: BoxShape.circle,
                           ),
-                          // Selected: solid green
                           selectedDecoration: const BoxDecoration(
                             color: Colors.green,
                             shape: BoxShape.circle,
@@ -183,7 +171,6 @@ class _HomePageState extends State<HomePage> {
                           markerBuilder: (context, day, events) {
                             if (events.isEmpty) return null;
 
-                            // Up to 3 dots, colored by client status
                             final dots = events.take(3).map((e) {
                               final c = e;
                               return Container(
@@ -214,81 +201,17 @@ class _HomePageState extends State<HomePage> {
 
                   const SizedBox(height: 12),
 
-                  _AppointmentsForDay(
-                    selectedDay: _selectedDay,
-                    clients: clients,
-                    onClientTap: (c) => _openClientDetail(context, c),
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          'Clients (${clients.length})',
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                      TextButton(
-                        onPressed: () => _openClientList(context),
-                        child: const Text('See all'),
-                      ),
-                    ],
-                  ),
-
+                  // Show appointments under the calendar
                   if (!clientListVM.isLoaded)
                     const Padding(
                       padding: EdgeInsets.only(top: 12),
                       child: Center(child: CircularProgressIndicator()),
                     )
-                  else if (clients.isEmpty)
-                    Card(
-                      elevation: 0,
-                      color: Colors.grey.shade100,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            const Text(
-                              'No clients yet',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            const Text('Tap “Add client” to create your first client'),
-                            const SizedBox(height: 12),
-                            ElevatedButton.icon(
-                              onPressed: () => _openCreateClient(context),
-                              icon: const Icon(Icons.add),
-                              label: const Text('Add client'),
-                            ),
-                          ],
-                        ),
-                      ),
-                    )
                   else
-                    ListView.separated(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: clients.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 10),
-                      itemBuilder: (context, index) {
-                        final client = clients[index];
-                        return ClientCardWidget(
-                          client: client,
-                          onTap: () => _openClientDetail(context, client),
-                        );
-                      },
+                    _AppointmentsForDay(
+                      selectedDay: _selectedDay,
+                      clients: clients,
+                      onClientTap: (c) => _openClientDetail(context, c),
                     ),
                 ],
               ),
@@ -317,7 +240,7 @@ class _HomePageState extends State<HomePage> {
       context,
       MaterialPageRoute(
         builder: (_) => CreateClientPage(
-          onCreate: (_) {}, // rely on returned Client
+          onCreate: (_) {},
         ),
       ),
     );
@@ -384,7 +307,17 @@ class _AppointmentsForDay extends StatelessWidget {
     }).toList()
       ..sort((a, b) => a.nextAppointment.compareTo(b.nextAppointment));
 
-    if (items.isEmpty) return const SizedBox.shrink();
+    if (items.isEmpty) {
+      return Card(
+        elevation: 0,
+        color: Colors.grey.shade50,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        child: const Padding(
+          padding: EdgeInsets.all(12),
+          child: Text('No appointments for this day'),
+        ),
+      );
+    }
 
     return Card(
       elevation: 0,
