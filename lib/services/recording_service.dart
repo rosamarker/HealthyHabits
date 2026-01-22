@@ -12,11 +12,8 @@ class RecordingService {
   RecordingSessionMeta? _current;
   Timer? _ticker;
 
-  StreamSubscription? _vmListener;
+  StreamSubscription<MovesenseConnectionState>? _connSub;
   StreamController<SensorSample>? _liveController;
-
-  int? _lastHr;
-  int? _lastBatt;
 
   RecordingService({
     required this.repo,
@@ -31,6 +28,7 @@ class RecordingService {
     return _liveController!.stream;
   }
 
+  // Starts a new recording session and writes samples at a fixed cadence (1 Hz)
   Future<RecordingSessionMeta> start({String? clientId}) async {
     if (_current != null) return _current!;
 
@@ -41,14 +39,12 @@ class RecordingService {
     );
     _current = meta;
 
-    _lastHr = movesenseVM.heartRate;
-    _lastBatt = movesenseVM.batteryPercent;
-
     _liveController ??= StreamController<SensorSample>.broadcast();
 
-    // Record at a fixed cadence (e.g., 1 Hz) using latest values from VM.
+    // Record at a fixed cadence (1 Hz) using latest values from Movesense VM
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) async {
-      if (_current == null) return;
+      final cur = _current;
+      if (cur == null) return;
 
       final sample = SensorSample(
         tsMs: DateTime.now().millisecondsSinceEpoch,
@@ -56,23 +52,22 @@ class RecordingService {
         batteryPercent: movesenseVM.batteryPercent,
       );
 
-      // Avoid writing pure null/no-change spam if desired:
-      final hr = sample.heartRate;
-      final b = sample.batteryPercent;
-      final changed = (hr != null && hr != _lastHr) || (b != null && b != _lastBatt);
-      if (!changed && hr == null && b == null) return;
-
-      _lastHr = hr ?? _lastHr;
-      _lastBatt = b ?? _lastBatt;
-
       _liveController?.add(sample);
-      await repo.appendSample(_current!.sessionId, sample);
+
+      try {
+        await repo.appendSample(cur.sessionId, sample);
+      } catch (_) {
+        // Avoid crashing the timer loop on IO/DB errors.
+      }
     });
 
-    // Extra: stop recording automatically if device disconnects.
-    _vmListener = movesenseVM.connectionStateStream.listen((state) async {
+    // Auto-stop if device disconnects
+    // This prevents recording endlessly if the sensor drops
+    _connSub = movesenseVM.connectionStateStream.listen((state) async {
       if (_current == null) return;
-      if (!movesenseVM.isConnected && !movesenseVM.isConnecting) {
+
+      final disconnected = (state == MovesenseConnectionState.disconnected);
+      if (disconnected) {
         await stop();
       }
     });
@@ -87,16 +82,23 @@ class RecordingService {
     _ticker?.cancel();
     _ticker = null;
 
-    await _vmListener?.cancel();
-    _vmListener = null;
+    await _connSub?.cancel();
+    _connSub = null;
 
-    await repo.closeSession(cur.sessionId);
+    try {
+      await repo.closeSession(cur.sessionId);
+    } catch (_) {
+      // Ignore close errors 
+      // session file/db may still be usable
+    }
+
     _current = null;
   }
 
   void dispose() {
     _ticker?.cancel();
-    _vmListener?.cancel();
+    _connSub?.cancel();
     _liveController?.close();
+    _liveController = null;
   }
 }

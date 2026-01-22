@@ -1,7 +1,15 @@
 // lib/view/client_card_view.dart
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:stop_watch_timer/stop_watch_timer.dart';
 
+import '../model/clients.dart';
+import '../model/recording_models.dart';
+import '../services/recording_repository.dart';
 import '../view_model/client_card_view_model.dart';
 import '../view_model/client_list_view_model.dart';
 import '../view_model/movesense_view_model.dart';
@@ -14,8 +22,6 @@ class ClientDetailPage extends StatefulWidget {
   final ClientDetailViewModel viewModel;
   final ClientListViewModel clientListVM;
   final MovesenseViewModel movesenseVM;
-
-  // Fixes analyzer: missing required argument recordingVM
   final RecordingViewModel recordingVM;
 
   const ClientDetailPage({
@@ -37,13 +43,12 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
   @override
   void initState() {
     super.initState();
-
     for (final ex in widget.viewModel.client.exercises) {
       _exerciseDone[ex.exerciseId] = false;
       if (!ex.isCountable) {
         _stopWatches[ex.exerciseId] = StopWatchTimer(
           mode: StopWatchMode.countDown,
-          presetMillisecond: ex.time * 1000,
+          presetMillisecond: ex.time * 1000, // ex.time stored in seconds
         );
       }
     }
@@ -66,7 +71,17 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
     final client = widget.viewModel.client;
 
     return Scaffold(
-      appBar: AppBar(title: Text(client.name), centerTitle: true),
+      appBar: AppBar(
+        title: Text(client.name),
+        centerTitle: true,
+        actions: [
+          TextButton.icon(
+            onPressed: () => _exportJsonForClient(client),
+            icon: const Icon(Icons.download),
+            label: const Text('Export JSON'),
+          ),
+        ],
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -111,7 +126,6 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
           Text(client.motivation.isNotEmpty ? client.motivation : 'No motivation notes added.'),
           const SizedBox(height: 16),
 
-          // Movesense block on client page: link to this specific client
           MovesenseBlockWidget(
             vm: widget.movesenseVM,
             recordingVM: widget.recordingVM,
@@ -161,7 +175,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
                           if (exercise.isCountable)
                             Text('${exercise.sets} sets • ${exercise.reps} reps')
                           else
-                            Text('Time: ${exercise.time}s'),
+                            Text(_formatSecondsAsMinSec(exercise.time)),
                         ],
                       ),
                       const SizedBox(height: 8),
@@ -185,6 +199,91 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
             }),
         ],
       ),
+    );
+  }
+
+  String _formatSecondsAsMinSec(int secondsTotal) {
+    final m = secondsTotal ~/ 60;
+    final s = secondsTotal % 60;
+    return 'Time: ${m}m ${s.toString().padLeft(2, '0')}s';
+  }
+
+  Future<void> _exportJsonForClient(Client client) async {
+    final RecordingRepository repo = widget.recordingVM.service.repo;
+
+    // Sessions for this client
+    final sessions = (await repo.listSessions())
+        .where((s) => s.clientId == client.clientId)
+        .toList()
+      ..sort((a, b) => b.startedAtMs.compareTo(a.startedAtMs));
+
+    if (!mounted) return;
+
+    if (sessions.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No recordings found for this client.')),
+      );
+      return;
+    }
+
+    // Export ALL sessions for this client into one file (simpler to find/use).
+    final payload = <String, Object?>{
+      'client': {
+        'clientId': client.clientId,
+        'name': client.name,
+      },
+      'exportedAtMs': DateTime.now().millisecondsSinceEpoch,
+      'sessions': <Object?>[],
+    };
+
+    for (final meta in sessions) {
+      final samples = await repo.streamSamples(meta.sessionId).toList();
+
+      (payload['sessions'] as List<Object?>).add({
+        'meta': meta.toMap(),
+        'samples': samples.map((s) => s.toMap()).toList(),
+      });
+    }
+
+    final dir = await getApplicationDocumentsDirectory();
+    final safeName = client.name.trim().isEmpty
+        ? client.clientId
+        : client.name.trim().replaceAll(RegExp(r'[^A-Za-z0-9_\-]+'), '_');
+
+    final file = File(
+      '${dir.path}/healthyhabits_${safeName}_${DateTime.now().millisecondsSinceEpoch}.json',
+    );
+
+    const encoder = JsonEncoder.withIndent('  ');
+    await file.writeAsString(encoder.convert(payload), flush: true);
+
+    if (!mounted) return;
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Export complete'),
+          content: SelectableText(file.path),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: file.path));
+                if (!ctx.mounted) return;
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('File path copied to clipboard.')),
+                );
+              },
+              child: const Text('Copy path'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('OK'),
+            ),
+          ],
+        );
+      },
     );
   }
 }

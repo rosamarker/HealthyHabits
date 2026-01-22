@@ -39,7 +39,9 @@ class _MovesenseBlockWidgetState extends State<MovesenseBlockWidget> {
             ? vm.deviceName!
             : (vm.deviceId?.isNotEmpty == true ? vm.deviceId! : 'Sensor');
 
-        final batteryText = vm.batteryPercent != null ? '${vm.batteryPercent}%' : '--%';
+        // Show battery state (normal/low/--)
+        final batteryText = vm.batteryStateText; // "normal" / "low" / "--"
+
         final hrText = vm.heartRate != null ? '${vm.heartRate}' : '--';
 
         final statusLine = vm.isConnecting
@@ -65,9 +67,20 @@ class _MovesenseBlockWidgetState extends State<MovesenseBlockWidget> {
                 ),
                 const SizedBox(height: 8),
 
-                Text(
-                  '$idOrName • Battery $batteryText',
-                  style: const TextStyle(fontSize: 16),
+                RichText(
+                  textAlign: TextAlign.center,
+                  text: TextSpan(
+                    style: const TextStyle(fontSize: 16, color: Colors.black),
+                    children: [
+                      TextSpan(text: '$idOrName\n'),
+                      const WidgetSpan(
+                        alignment: PlaceholderAlignment.middle,
+                        child: Icon(Icons.battery_full, size: 18),
+                      ),
+                      const TextSpan(text: ' '),
+                      TextSpan(text: batteryText),
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Text(
@@ -84,13 +97,14 @@ class _MovesenseBlockWidgetState extends State<MovesenseBlockWidget> {
                     color: rec.isRecording ? Colors.redAccent : null,
                     fontWeight: FontWeight.w600,
                   ),
+                  textAlign: TextAlign.center,
                 ),
 
                 const SizedBox(height: 12),
 
-                // FIX: Replace Row with Wrap to prevent right overflow on small screens.
+                // Avoid overflow: Wrap instead of Row
                 Wrap(
-                  alignment: WrapAlignment.spaceEvenly,
+                  alignment: WrapAlignment.center,
                   spacing: 12,
                   runSpacing: 8,
                   children: [
@@ -180,8 +194,6 @@ class _MovesenseBlockWidgetState extends State<MovesenseBlockWidget> {
                     children: [
                       Expanded(
                         child: DropdownButtonFormField<String>(
-                          // NOTE: `value:` is deprecated in newer Flutter versions for DropdownButtonFormField.
-                          // Keep as-is if you want minimal change; switch to `initialValue:` if you update.
                           value: _selectedClientId,
                           isExpanded: true,
                           decoration: const InputDecoration(
@@ -215,11 +227,10 @@ class _MovesenseBlockWidgetState extends State<MovesenseBlockWidget> {
 
                                 widget.onLinkToClient!(updated);
 
-                                if (mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text('Linked device to ${client.name}')),
-                                  );
-                                }
+                                if (!mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('Linked device to ${client.name}')),
+                                );
                               },
                         child: const Text('Link'),
                       ),
